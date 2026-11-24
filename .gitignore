@@ -1,0 +1,9 @@
+.next/
+node_modules/
+coverage/
+premium-audit.json
+*.log
+*.tsbuildinfo
+.env*
+!.env.example
+
