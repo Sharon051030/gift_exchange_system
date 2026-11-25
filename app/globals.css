@@ -1070,6 +1070,125 @@ button:focus-visible {
   text-decoration: underline;
 }
 
+.reset-zone {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 22px;
+  color: #5f171b;
+  background: #f4d8d1;
+  border: 1px solid var(--danger);
+  border-left-width: 7px;
+}
+.reset-zone h2 {
+  margin: 2px 0 8px;
+  font: 700 1.35rem/1.2 var(--font-display);
+}
+.reset-zone p {
+  max-width: 66em;
+  margin: 0;
+  line-height: 1.6;
+}
+.reset-zone-kicker {
+  color: var(--danger);
+  font: 800 0.68rem/1.2 var(--font-utility);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.reset-activity-button,
+.reset-confirm-button {
+  flex: none;
+  min-height: 44px;
+  padding: 10px 16px;
+  color: var(--paper-raised);
+  background: var(--danger);
+  border: 1px solid var(--danger);
+  font-weight: 900;
+}
+.reset-activity-button:hover,
+.reset-confirm-button:hover:not(:disabled) {
+  background: #761a20;
+}
+.reset-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(24, 30, 24, 0.72);
+}
+.reset-dialog {
+  width: min(100%, 570px);
+  max-height: calc(100svh - 40px);
+  overflow-y: auto;
+  padding: clamp(24px, 5vw, 42px);
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 2px solid var(--ink);
+  border-top: 9px solid var(--danger);
+  box-shadow: 12px 14px 0 rgba(0, 0, 0, 0.28);
+}
+.reset-dialog h2 {
+  margin: 4px 0 12px;
+  font: 700 clamp(1.8rem, 6vw, 2.7rem) / 1 var(--font-display);
+}
+.reset-dialog > p:not(.reset-zone-kicker) {
+  margin: 0 0 24px;
+  color: var(--muted-ink);
+  line-height: 1.65;
+}
+.reset-dialog form,
+.reset-dialog label {
+  display: grid;
+  gap: 9px;
+}
+.reset-dialog label {
+  font-weight: 800;
+}
+.reset-dialog input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fffdf5;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  font: inherit;
+}
+.reset-dialog input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.reset-dialog-error {
+  padding: 10px 12px;
+  color: #6e191e;
+  background: #f5d5ce;
+  border-left: 4px solid var(--danger);
+}
+.reset-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+.reset-dialog-actions button {
+  min-height: 44px;
+  padding: 10px 16px;
+  font-weight: 900;
+}
+.reset-dialog-actions button:first-child {
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+}
+.reset-dialog-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .admin-shell {
   width: min(1600px, 100%);
   min-width: 0;
@@ -2057,6 +2176,132 @@ progress::-moz-progress-bar {
   }
 }
 
+/* Authentication uses the same printed-paper system as the stage, with one
+   deliberate signature: a narrow berry ticket edge that marks protected space. */
+.auth-page {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: clamp(24px, 6vw, 72px);
+  background:
+    linear-gradient(90deg, var(--pine, #344e37) 0 14px, transparent 14px),
+    var(--paper, #f4eedb);
+  color: var(--ink, #302d24);
+}
+.auth-card {
+  width: min(100%, 520px);
+  padding: clamp(28px, 6vw, 54px);
+  background: var(--paper-raised, #fff9e9);
+  border: 1px solid color-mix(in srgb, var(--ink, #302d24) 28%, transparent);
+  border-left: 9px solid var(--berry, #b63439);
+  box-shadow: 12px 14px 0
+    color-mix(in srgb, var(--pine, #344e37) 16%, transparent);
+}
+.auth-kicker {
+  margin: 0 0 16px;
+  color: var(--berry, #b63439);
+  font:
+    700 0.74rem/1.3 Arial,
+    sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.auth-card h1 {
+  margin: 0;
+  font:
+    700 clamp(2.1rem, 8vw, 3.7rem)/0.98 Georgia,
+    serif;
+  text-wrap: balance;
+}
+.auth-intro,
+.auth-card > p:not(.auth-kicker) {
+  margin: 18px 0 28px;
+  color: var(--muted-ink, #6c675a);
+  line-height: 1.7;
+}
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+.auth-form label {
+  margin-top: 8px;
+  font-weight: 700;
+}
+.auth-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  color: var(--ink, #302d24);
+  background: #fffdf5;
+  border: 1px solid color-mix(in srgb, var(--ink, #302d24) 45%, transparent);
+  border-radius: 6px;
+  font: inherit;
+}
+.auth-form input:focus-visible,
+.auth-form button:focus-visible,
+.auth-back:focus-visible,
+.auth-primary-link:focus-visible,
+.admin-signout:focus-visible {
+  outline: 3px solid var(--antique-gold, #cfa05b);
+  outline-offset: 3px;
+}
+.auth-password-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+.auth-password-field button {
+  min-width: 64px;
+  border: 1px solid var(--pine, #344e37);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pine, #344e37);
+  font-weight: 700;
+  cursor: pointer;
+}
+.auth-error {
+  min-height: 48px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--danger, #9f282e);
+  background: color-mix(in srgb, var(--dusty-pink, #e6b4ad) 55%, white);
+  color: var(--ink, #302d24);
+}
+.auth-submit,
+.auth-primary-link {
+  min-height: 50px;
+  margin-top: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--berry, #b63439);
+  color: var(--paper-raised, #fff9e9);
+  font: 700 1rem/1.2 inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+.auth-back {
+  margin-top: 12px;
+  color: var(--pine, #344e37);
+  text-align: center;
+  text-underline-offset: 4px;
+}
+.admin-signout {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.export-disabled {
+  color: var(--muted-ink, #6c675a);
+  font-size: 0.9rem;
+}
+
 @media (forced-colors: active) {
   * {
     scrollbar-color: CanvasText Canvas;
@@ -2658,6 +2903,19 @@ a:focus-visible {
     grid-template-columns: 1fr;
     gap: 24px;
     padding: 68px 26px 30px;
+  }
+  .reset-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .reset-activity-button {
+    width: 100%;
+  }
+  .reset-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .reset-dialog-actions button {
+    width: 100%;
   }
 }
 

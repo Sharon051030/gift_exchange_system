@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DrawResult, Participant } from "@/lib/demo-store";
+import type { Principal } from "@/lib/authorization";
+import { authClient } from "@/lib/auth-client";
 import type { GiftPool } from "@/lib/draw-engine";
 import { PauseIcon, PlayIcon } from "./Icons";
 
@@ -71,7 +74,7 @@ type AdminData = {
     absentParticipants: number;
     missingGifts: number;
   };
-  csrfToken: string;
+  viewerRole: "admin" | "host" | "viewer";
 };
 
 const modules: Array<{ id: ModuleId; label: string; description: string }> = [
@@ -93,7 +96,8 @@ const timeFormatter = new Intl.DateTimeFormat("zh-TW", {
   hour12: false,
 });
 
-export function AdminDashboard() {
+export function AdminDashboard({ principal }: { principal: Principal }) {
+  const router = useRouter();
   const [data, setData] = useState<AdminData | null>(null);
   const [activeModule, setActiveModule] = useState<ModuleId>("overview");
   const [pool, setPool] = useState<GiftPool>("good");
@@ -102,7 +106,11 @@ export function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const resetTriggerRef = useRef<HTMLButtonElement>(null);
 
   async function requestOverview(signal?: AbortSignal) {
     const response = await fetch("/api/admin/overview", {
@@ -181,7 +189,6 @@ export function AdminDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-csrf-token": data.csrfToken,
         },
         body: JSON.stringify({ paused: !data.paused }),
       });
@@ -206,6 +213,39 @@ export function AdminDashboard() {
       );
     } finally {
       setPauseBusy(false);
+    }
+  }
+
+  async function resetActivity(confirmation: string) {
+    if (!data || resetBusy || principal.role !== "admin") return;
+    setResetBusy(true);
+    setResetError("");
+    try {
+      const response = await fetch("/api/admin/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation }),
+      });
+      const payload = (await response.json()) as {
+        clearedDraws?: number;
+        message?: string;
+      };
+      if (!response.ok || typeof payload.clearedDraws !== "number") {
+        throw new Error(payload.message ?? "活動無法重置。");
+      }
+      await requestOverview();
+      setResetOpen(false);
+      setNotice(
+        `活動已重置，清除本輪 ${payload.clearedDraws} 筆抽獎結果；名單與歷史稽核紀錄已保留。`,
+      );
+    } catch (requestError) {
+      setResetError(
+        requestError instanceof Error
+          ? requestError.message
+          : "活動無法重置，現有資料未變更。",
+      );
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -236,117 +276,153 @@ export function AdminDashboard() {
   }
 
   return (
-    <main className="admin-page">
-      <header className="admin-topbar">
-        <div>
-          <p className="admin-brand">Christmas Mystery Gift</p>
-          <span>主持控制台</span>
-        </div>
-        <div className="admin-event-state" aria-live="polite">
-          <span
-            className={`state-dot ${data.paused ? "paused" : "live"}`}
-            aria-hidden="true"
-          />
-          <strong>{data.paused ? "活動暫停" : "活動進行中"}</strong>
-          <span>{data.event.rulesVersion}</span>
-        </div>
-        <div className="admin-top-actions">
-          <button
-            type="button"
-            className="admin-refresh"
-            disabled={refreshing}
-            aria-busy={refreshing}
-            onClick={() => void refresh()}
-          >
-            {refreshing ? "更新中" : "更新資料"}
-          </button>
-          <Link href="/">前往舞台</Link>
-        </div>
-      </header>
-
-      <div className="admin-demo-banner" role="note">
-        <strong>展示後台</strong>
-        <span>
-          目前使用示範資料與展示
-          Session；正式上線前必須接上帳號、角色權限與資料庫。
-        </span>
-      </div>
-
-      {error ? (
-        <div className="admin-alert admin-alert-error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError("")}>
-            關閉
-          </button>
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="admin-alert admin-alert-success" role="status">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice("")}>
-            關閉
-          </button>
-        </div>
-      ) : null}
-
-      <div className="admin-shell">
-        <aside className="admin-sidebar">
-          <nav aria-label="後台模組">
-            {modules.map((module) => (
-              <button
-                key={module.id}
-                type="button"
-                className={activeModule === module.id ? "active" : ""}
-                aria-current={activeModule === module.id ? "page" : undefined}
-                onClick={() => setActiveModule(module.id)}
-              >
-                <strong>{module.label}</strong>
-                <span>{module.description}</span>
-              </button>
-            ))}
-          </nav>
-          <div className="admin-sidebar-note">
-            <span>最後更新</span>
-            <strong>
-              {timeFormatter.format(new Date(data.event.updatedAt))}
-            </strong>
+    <>
+      <main className="admin-page" inert={resetOpen ? true : undefined}>
+        <header className="admin-topbar">
+          <div>
+            <p className="admin-brand">Christmas Mystery Gift</p>
+            <span>主持控制台</span>
           </div>
-        </aside>
+          <div className="admin-event-state" aria-live="polite">
+            <span
+              className={`state-dot ${data.paused ? "paused" : "live"}`}
+              aria-hidden="true"
+            />
+            <strong>{data.paused ? "活動暫停" : "活動進行中"}</strong>
+            <span>{data.event.rulesVersion}</span>
+          </div>
+          <div className="admin-top-actions">
+            <button
+              type="button"
+              className="admin-refresh"
+              disabled={refreshing}
+              aria-busy={refreshing}
+              onClick={() => void refresh()}
+            >
+              {refreshing ? "更新中" : "更新資料"}
+            </button>
+            <Link href="/">前往舞台</Link>
+            <button
+              type="button"
+              className="admin-signout"
+              onClick={() =>
+                void authClient.signOut().then(() => {
+                  router.replace("/login");
+                  router.refresh();
+                })
+              }
+            >
+              登出 {principal.name}
+            </button>
+          </div>
+        </header>
 
-        <section className="admin-content">
-          {activeModule === "overview" ? (
-            <OverviewPanel data={data} onOpenModule={setActiveModule} />
-          ) : null}
-          {activeModule === "participants" ? (
-            <ParticipantsPanel
-              rows={filteredParticipants}
-              query={query}
-              searchRef={searchRef}
-              onQueryChange={setQuery}
-              onClear={clearSearch}
-            />
-          ) : null}
-          {activeModule === "gifts" ? (
-            <GiftsPanel data={data} pool={pool} onPoolChange={setPool} />
-          ) : null}
-          {activeModule === "control" ? (
-            <ControlPanel
-              data={data}
-              pool={pool}
-              onPoolChange={setPool}
-              pauseBusy={pauseBusy}
-              onTogglePause={togglePause}
-            />
-          ) : null}
-          {activeModule === "exceptions" ? (
-            <ExceptionsPanel data={data} />
-          ) : null}
-          {activeModule === "records" ? (
-            <RecordsPanel data={data} pool={pool} onPoolChange={setPool} />
-          ) : null}
-        </section>
-      </div>
-    </main>
+        <div className="admin-demo-banner" role="status">
+          <strong>{principal.role === "admin" ? "管理員" : "主持人"}</strong>
+          <span>已啟用伺服器端角色權限、資料庫交易與集中式操作限流。</span>
+        </div>
+
+        {error ? (
+          <div className="admin-alert admin-alert-error" role="alert">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError("")}>
+              關閉
+            </button>
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="admin-alert admin-alert-success" role="status">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice("")}>
+              關閉
+            </button>
+          </div>
+        ) : null}
+
+        <div className="admin-shell">
+          <aside className="admin-sidebar">
+            <nav aria-label="後台模組">
+              {modules.map((module) => (
+                <button
+                  key={module.id}
+                  type="button"
+                  className={activeModule === module.id ? "active" : ""}
+                  aria-current={activeModule === module.id ? "page" : undefined}
+                  onClick={() => setActiveModule(module.id)}
+                >
+                  <strong>{module.label}</strong>
+                  <span>{module.description}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="admin-sidebar-note">
+              <span>最後更新</span>
+              <strong>
+                {timeFormatter.format(new Date(data.event.updatedAt))}
+              </strong>
+            </div>
+          </aside>
+
+          <section className="admin-content">
+            {activeModule === "overview" ? (
+              <OverviewPanel data={data} onOpenModule={setActiveModule} />
+            ) : null}
+            {activeModule === "participants" ? (
+              <ParticipantsPanel
+                rows={filteredParticipants}
+                query={query}
+                searchRef={searchRef}
+                onQueryChange={setQuery}
+                onClear={clearSearch}
+              />
+            ) : null}
+            {activeModule === "gifts" ? (
+              <GiftsPanel data={data} pool={pool} onPoolChange={setPool} />
+            ) : null}
+            {activeModule === "control" ? (
+              <ControlPanel
+                data={data}
+                pool={pool}
+                onPoolChange={setPool}
+                pauseBusy={pauseBusy}
+                onTogglePause={togglePause}
+                canReset={principal.role === "admin"}
+                resetTriggerRef={resetTriggerRef}
+                onOpenReset={() => {
+                  setResetError("");
+                  setResetOpen(true);
+                }}
+              />
+            ) : null}
+            {activeModule === "exceptions" ? (
+              <ExceptionsPanel data={data} />
+            ) : null}
+            {activeModule === "records" ? (
+              <RecordsPanel
+                data={data}
+                pool={pool}
+                onPoolChange={setPool}
+                canExport={principal.role === "admin"}
+              />
+            ) : null}
+          </section>
+        </div>
+      </main>
+      {resetOpen ? (
+        <ResetActivityDialog
+          eventName={data.event.name}
+          busy={resetBusy}
+          error={resetError}
+          restoreFocusRef={resetTriggerRef}
+          onCancel={() => {
+            if (resetBusy) return;
+            setResetOpen(false);
+            setResetError("");
+          }}
+          onConfirm={resetActivity}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -711,12 +787,18 @@ function ControlPanel({
   onPoolChange,
   pauseBusy,
   onTogglePause,
+  canReset,
+  resetTriggerRef,
+  onOpenReset,
 }: {
   data: AdminData;
   pool: GiftPool;
   onPoolChange: (pool: GiftPool) => void;
   pauseBusy: boolean;
   onTogglePause: () => Promise<void>;
+  canReset: boolean;
+  resetTriggerRef: React.RefObject<HTMLButtonElement | null>;
+  onOpenReset: () => void;
 }) {
   const summary = data.pools[pool];
   const recent = summary.opened.slice(-8).reverse();
@@ -782,13 +864,163 @@ function ControlPanel({
           </div>
         )}
       </section>
+      {canReset ? (
+        <section className="reset-zone" aria-labelledby="reset-zone-title">
+          <div>
+            <p className="reset-zone-kicker">Danger zone</p>
+            <h2 id="reset-zone-title">重置整場活動</h2>
+            <p>
+              清除好禮物與壞禮物本輪結果、把接棒者復原至起點並解除暫停。參加者名單與歷史稽核紀錄會保留。
+            </p>
+          </div>
+          <button
+            ref={resetTriggerRef}
+            type="button"
+            className="reset-activity-button"
+            onClick={onOpenReset}
+          >
+            重置活動
+          </button>
+        </section>
+      ) : null}
       <div className="control-note" role="note">
         <strong>管理限制</strong>
         <span>
-          展示版未開放重抽與中段作廢，避免破壞既有接棒鏈。正式版需先顯示影響範圍，再以受控補償流程處理。
+          單一格重抽與中段作廢仍未開放，避免破壞既有接棒鏈。需要重新開始時，管理員可使用完整活動重置。
         </span>
       </div>
     </>
+  );
+}
+
+function ResetActivityDialog({
+  eventName,
+  busy,
+  error,
+  restoreFocusRef,
+  onCancel,
+  onConfirm,
+}: {
+  eventName: string;
+  busy: boolean;
+  error: string;
+  restoreFocusRef: React.RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+  onConfirm: (confirmation: string) => Promise<void>;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const busyRef = useRef(busy);
+  const onCancelRef = useRef(onCancel);
+  const matches = confirmation === eventName;
+
+  useEffect(() => {
+    busyRef.current = busy;
+    onCancelRef.current = onCancel;
+  }, [busy, onCancel]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const restoreTarget = restoreFocusRef.current;
+    document.body.style.overflow = "hidden";
+    cancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busyRef.current) {
+        event.preventDefault();
+        onCancelRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (!focusable.length) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      restoreTarget?.focus();
+    };
+  }, [restoreFocusRef]);
+
+  return (
+    <div className="reset-dialog-backdrop">
+      <div
+        ref={dialogRef}
+        className="reset-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="reset-dialog-title"
+        aria-describedby="reset-dialog-description"
+      >
+        <p className="reset-zone-kicker">不可復原本輪結果</p>
+        <h2 id="reset-dialog-title">確認重置活動</h2>
+        <p id="reset-dialog-description">
+          本輪所有抽獎結果將清除，兩個獎池會回到第一位接棒者。參加者名單及歷史稽核紀錄不受影響。
+        </p>
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!matches || busy) return;
+            void onConfirm(confirmation);
+          }}
+        >
+          <label htmlFor="reset-confirmation">
+            請輸入活動名稱 <strong>{eventName}</strong>
+          </label>
+          <input
+            id="reset-confirmation"
+            value={confirmation}
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "reset-dialog-error" : undefined}
+            onChange={(event) => setConfirmation(event.target.value)}
+          />
+          {error ? (
+            <div
+              id="reset-dialog-error"
+              className="reset-dialog-error"
+              role="alert"
+            >
+              {error}
+            </div>
+          ) : null}
+          <div className="reset-dialog-actions">
+            <button
+              ref={cancelRef}
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+            >
+              保留目前活動
+            </button>
+            <button
+              type="submit"
+              className="reset-confirm-button"
+              disabled={!matches || busy}
+              aria-busy={busy}
+            >
+              {busy ? "重置中…" : "清除並重置活動"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -846,10 +1078,12 @@ function RecordsPanel({
   data,
   pool,
   onPoolChange,
+  canExport,
 }: {
   data: AdminData;
   pool: GiftPool;
   onPoolChange: (pool: GiftPool) => void;
+  canExport: boolean;
 }) {
   return (
     <>
@@ -863,9 +1097,15 @@ function RecordsPanel({
           <strong>{pool === "good" ? "好禮物" : "壞禮物"}庫存與分配</strong>
           <span>UTF-8 CSV，包含提供者、格子與抽獎者。</span>
         </div>
-        <a href={`/api/admin/export?pool=${pool}`} download>
-          匯出 CSV
-        </a>
+        {canExport ? (
+          <a href={`/api/admin/export?pool=${pool}`} download>
+            匯出 CSV
+          </a>
+        ) : (
+          <span className="export-disabled" role="note">
+            僅管理員可匯出
+          </span>
+        )}
       </div>
       <div className="admin-table-wrap audit-table">
         <table>

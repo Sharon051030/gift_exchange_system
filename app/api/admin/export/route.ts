@@ -1,14 +1,28 @@
 import { type NextRequest } from "next/server";
-import { adminOverview, demoStore } from "@/lib/demo-store";
+import { authorize } from "@/lib/authorization";
+import { getAdminOverview } from "@/lib/event-repository";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import type { GiftPool } from "@/lib/draw-engine";
 
 const csvCell = (value: string | number | null) =>
   `"${String(value ?? "").replaceAll('"', '""')}"`;
 
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
+  const access = await authorize(request.headers, ["admin"]);
+  if (!access.ok)
+    return Response.json(
+      { message: access.message },
+      { status: access.status },
+    );
+  const limited = await enforceRateLimit("export", access.principal.id);
+  if (!limited.success)
+    return Response.json(
+      { message: limited.message },
+      { status: limited.status },
+    );
   const pool: GiftPool =
     request.nextUrl.searchParams.get("pool") === "bad" ? "bad" : "good";
-  const overview = adminOverview(demoStore);
+  const overview = await getAdminOverview();
   const rows = overview.gifts
     .filter((gift) => gift.pool === pool)
     .map((gift) =>

@@ -11,24 +11,37 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "format:check": "prettier --check .",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "auth:migrate": "dotenv -e .env.local -- auth migrate --config lib/auth.ts --yes",
+    "db:migrate": "dotenv -e .env.local -- tsx scripts/migrate.ts",
+    "db:seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
+    "db:bootstrap-admin": "dotenv -e .env.local -- tsx scripts/bootstrap-admin.ts",
+    "db:setup": "npm run auth:migrate && npm run db:migrate && npm run db:seed"
   },
   "dependencies": {
     "@react-three/fiber": "^9.8.2",
+    "@upstash/ratelimit": "^2.2.2",
+    "@upstash/redis": "^1.41.1",
+    "better-auth": "^1.7.28",
     "gsap": "^3.15.1",
     "next": "16.4.6",
+    "pg": "^8.23.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/three": "^0.187.0",
+    "auth": "^1.7.28",
+    "dotenv-cli": "^11.1.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.4.6",
     "prettier": "^3.6.2",
+    "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   },

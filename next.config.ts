@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
+const scriptSource =
+  process.env.NODE_ENV === "development"
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'";
+
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
@@ -17,8 +23,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+            value: `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; ${scriptSource}; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
           },
         ],
       },

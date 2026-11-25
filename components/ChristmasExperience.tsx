@@ -64,7 +64,7 @@ type EventState = {
   complete: boolean;
   currentDrawer: Participant;
   opened: DrawResult[];
-  csrfToken: string;
+  canControl: boolean;
 };
 
 type LoadStatus = "idle" | "loading" | "ready" | "error";
@@ -218,7 +218,6 @@ export function ChristmasExperience() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-csrf-token": eventState.csrfToken,
         },
         body: JSON.stringify({
           pool,
@@ -229,12 +228,12 @@ export function ChristmasExperience() {
       const payload = (await response.json()) as {
         message?: string;
         result?: DrawResult;
-        state?: Omit<EventState, "csrfToken">;
+        state?: Omit<EventState, "canControl">;
       };
       if (!response.ok || !payload.result || !payload.state) {
         throw new Error(payload.message ?? "目前無法確認驚喜，請重試。");
       }
-      setEventState({ ...payload.state, csrfToken: eventState.csrfToken });
+      setEventState({ ...payload.state, canControl: eventState.canControl });
       dispatchInteraction({ type: "DRAW_CONFIRMED", draw: payload.result });
       playSound("reveal");
     } catch (error) {
@@ -248,6 +247,8 @@ export function ChristmasExperience() {
   function handleSlot(slotNumber: number, trigger: HTMLButtonElement) {
     if (
       !eventState ||
+      (!eventState.canControl &&
+        !eventState.opened.some((draw) => draw.slotNumber === slotNumber)) ||
       eventState.paused ||
       eventState.complete ||
       interaction.phase === "draw-pending" ||
@@ -283,7 +284,7 @@ export function ChristmasExperience() {
   }
 
   async function togglePause() {
-    if (!eventState || pauseBusy) return;
+    if (!eventState || !eventState.canControl || pauseBusy) return;
     setPauseBusy(true);
     setErrorMessage("");
     try {
@@ -291,7 +292,6 @@ export function ChristmasExperience() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-csrf-token": eventState.csrfToken,
         },
         body: JSON.stringify({ paused: !eventState.paused }),
       });
@@ -448,16 +448,22 @@ export function ChristmasExperience() {
               <ExpandIcon />
               <span className="action-label">全螢幕</span>
             </button>
-            <button
-              type="button"
-              className="pause-button"
-              disabled={pauseBusy}
-              aria-busy={pauseBusy}
-              onClick={() => void togglePause()}
-            >
-              {eventState.paused ? <PlayIcon /> : <PauseIcon />}
-              <span>{eventState.paused ? "繼續" : "暫停"}</span>
-            </button>
+            {eventState.canControl ? (
+              <button
+                type="button"
+                className="pause-button"
+                disabled={pauseBusy}
+                aria-busy={pauseBusy}
+                onClick={() => void togglePause()}
+              >
+                {eventState.paused ? <PlayIcon /> : <PauseIcon />}
+                <span>{eventState.paused ? "繼續" : "暫停"}</span>
+              </button>
+            ) : (
+              <Link className="pause-button" href="/login?next=/">
+                主持人登入
+              </Link>
+            )}
           </div>
         </header>
 
@@ -537,7 +543,8 @@ export function ChristmasExperience() {
                 className={`gift-slot pattern-${index % 6} ${slotState}`}
                 disabled={
                   !opened &&
-                  (eventState.paused ||
+                  (!eventState.canControl ||
+                    eventState.paused ||
                     eventState.complete ||
                     lockedByOther ||
                     committing ||

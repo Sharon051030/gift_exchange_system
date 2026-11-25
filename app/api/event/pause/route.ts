@@ -1,20 +1,31 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
-import { checkRateLimit, verifyMutationRequest } from "@/lib/security";
+import { authorize, verifySameOrigin } from "@/lib/authorization";
+import { setEventPaused } from "@/lib/event-repository";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
-  const auth = verifyMutationRequest(request);
-  if (!auth.ok)
+  if (!verifySameOrigin(request))
     return NextResponse.json(
-      { message: auth.message },
-      { status: auth.status },
+      { message: "請求來源無法驗證。" },
+      { status: 403 },
     );
-  if (!checkRateLimit(`pause:${auth.sessionId}`, 10)) {
+  const access = await authorize(request.headers, ["admin", "host"]);
+  if (!access.ok)
     return NextResponse.json(
-      { message: "操作太頻繁，請稍候再試。" },
-      { status: 429 },
+      { message: access.message },
+      { status: access.status },
     );
-  }
+  const limited = await enforceRateLimit("pause", access.principal.id);
+  if (!limited.success)
+    return NextResponse.json(
+      { message: limited.message },
+      {
+        status: limited.status,
+        headers: limited.retryAfter
+          ? { "Retry-After": String(limited.retryAfter) }
+          : undefined,
+      },
+    );
   const body: unknown = await request.json().catch(() => null);
   if (
     !body ||
@@ -27,6 +38,13 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  demoStore.paused = body.paused;
-  return NextResponse.json({ paused: demoStore.paused });
+  try {
+    const paused = await setEventPaused(body.paused, access.principal);
+    return NextResponse.json({ paused });
+  } catch {
+    return NextResponse.json(
+      { message: "活動資料庫尚未完成初始化。" },
+      { status: 503 },
+    );
+  }
 }

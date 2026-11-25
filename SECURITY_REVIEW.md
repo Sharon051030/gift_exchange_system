@@ -1,26 +1,38 @@
 # 漏洞檢視表
 
-本表針對目前 MVP 程式碼與正式上線目標，不代表滲透測試或合規認證。
+檢查日期：2026-11-25。這是程式碼與部署前設定檢查，不等同第三方滲透測試或合規認證。
 
-| 風險                         | 等級   | 現況／證據                                                       | 影響                                   | 建議修補                                                 |
-| ---------------------------- | ------ | ---------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------- |
-| 無正式身份與角色授權         | 嚴重   | 任一取得展示 Session 的訪客可抽獎或暫停                          | 未授權操作、活動被中斷                 | 導入 Auth.js／SSO；API 逐項驗證 RBAC，投影端只讀         |
-| 記憶體狀態無資料庫交易       | 嚴重   | `lib/demo-store.ts` 使用程序記憶體                               | 重啟遺失、多節點結果分岔               | MySQL 交易、`SELECT ... FOR UPDATE`、唯一有效分配約束    |
-| 多執行個體競態               | 高     | 程序內同步邏輯只保護單一 instance                                | 重複發獎或接棒鏈損壞                   | 資料庫鎖、版本欄位、交易重試與並發測試                   |
-| 展示資料皆為公開回應         | 高     | 狀態 API 回傳所有示範參加者的姓名與祝福                          | 換成真資料後可能洩漏個資               | 公開 DTO 僅回傳已揭曉資料；照片用短效簽名 URL            |
-| Session 非帳號且無撤銷後台   | 高     | HttpOnly SameSite cookie 只代表瀏覽器展示工作階段                | 無法區分主持人與觀眾                   | 綁定使用者、裝置與活動；撤銷、過期、輪替與重新驗證       |
-| 速率限制只在單機記憶體       | 中     | `lib/security.ts` 的 Map                                         | 重啟或多節點可繞過，可能 DoS           | Redis／邊緣限流，以帳號、活動、IP 分層限制               |
-| CSP 允許 inline script/style | 中     | `next.config.ts` 為 Next.js 相容保留 unsafe-inline               | XSS 防護深度降低                       | 以 nonce／hash CSP 取代；清查第三方腳本與 style 注入     |
-| 無正式稽核日誌               | 中     | 只有結果狀態，沒有不可變更 actor/action/before/after             | 爭議時無法追責                         | 每次寫入建立 AuditLog；只追加、保留原因與規則快照        |
-| 錯誤回應可能被大量探測       | 低     | API 回傳具體流程錯誤                                             | 可推測活動狀態                         | 對外訊息收斂，詳細原因只寫受控日誌並附 request ID        |
-| 供應鏈與依賴尚未持續掃描     | 低     | lockfile 已固定；2026-11-25 `npm audit` 為 0，但尚無 CI 持續掃描 | 新漏洞未被即時發現                     | CI 執行 `npm audit`、Dependabot/Renovate、SAST 與 SBOM   |
-| 圖片上傳尚未實作             | 待追蹤 | 正式版需要照片上傳                                               | 未來可能有惡意檔案、路徑穿越、隱私風險 | 驗證 MIME 與 magic bytes、解碼重編碼、尺寸上限、隔離儲存 |
+## 本次已修補
 
-## 已有的基礎防護
+| 項目                 | 狀態   | 實作證據                                                                        | 驗收重點                                            |
+| -------------------- | ------ | ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 管理員登入與 Session | 已修補 | Better Auth email/password、PostgreSQL Session；公開註冊預設停用                | 建立管理員後，無 Cookie 存取 `/admin` 會回登入頁    |
+| 角色權限             | 已修補 | `admin / host / viewer`；頁面與每支敏感 API 都重新查 Session/RBAC               | host 不可匯出；viewer 直接進 `/admin` 會到 403      |
+| 匿名抽獎／暫停       | 已修補 | `/api/draws`、`/api/event/pause` 僅允許 admin/host，並檢查同源                  | 未登入 POST 應回 401；跨來源應回 403                |
+| 後台資料外洩         | 已修補 | overview 僅 admin/host；export 僅 admin；公開狀態只含目前與已揭曉資料           | 未登入 overview/export 不得回傳名單                 |
+| 記憶體資料遺失       | 已修補 | PostgreSQL `events / participants / pool_states / draws / audit_logs`           | 重啟與多 instance 後結果一致                        |
+| 多節點重複抽獎       | 已修補 | 交易、`FOR UPDATE`、格子／順序／提供者／抽獎者／idempotency 唯一約束            | 同格並發只允許一筆成功                              |
+| 單機限流可繞過       | 已修補 | Upstash Redis 分散式 sliding window；未設定時敏感操作回 503                     | 多 instance 共用計數，429 帶 Retry-After            |
+| 無稽核軌跡           | 已修補 | 抽獎與暫停操作寫入只追加 audit log，記錄操作者                                  | 後台可追蹤 actor/action/target/time                 |
+| 活動重置遭誤觸或越權 | 已修補 | 僅 admin、同源驗證、Redis 限流、輸入活動名稱、資料庫 transaction；保留 AuditLog | host／viewer 直接呼叫應回 403；失敗不得留下部分重置 |
+| 供應鏈已知漏洞       | 通過   | `package-lock.json` 固定版本；本次執行 `npm audit`                              | 公開前仍應在 CI 持續掃描                            |
 
-- 第三次戳破使用 idempotency key，重送回傳原結果。
-- 寫入端驗證池別、格子範圍、格子狀態與活動暫停狀態。
-- 展示 Session cookie 為 HttpOnly、SameSite Strict，寫入另驗證 CSRF token。
-- 基本安全標頭、同來源 CSP、請求大小自然受 JSON 路由限制。
-- Three.js、React Three Fiber 與 GSAP 皆由本機 bundle 載入；場景不抓取外部模型、材質或使用者 HTML。
-- 不使用 `alert`、`confirm`、HTML 注入或未受控外部圖片來源。
+## 公開前仍需處理
+
+| 風險                           | 等級     | 現況                                               | 公開前處理                                                            |
+| ------------------------------ | -------- | -------------------------------------------------- | --------------------------------------------------------------------- |
+| 尚未接入正式 PostgreSQL／Redis | 阻擋公開 | 程式與 migration 已完成，但本機未提供服務憑證      | 在 Vercel Marketplace 建立資料庫與 Redis，設定環境變數並跑 `db:setup` |
+| 尚未完成真實環境 E2E／壓力測試 | 阻擋公開 | 靜態、單元與建置測試不能證明外部服務行為           | 測試登入、撤銷、RBAC、重啟持久化、50 人閉環與並發抽獎                 |
+| CSP 仍含 `unsafe-inline`       | 中       | Next.js 現有 CSP 為相容目前 inline script/style    | 依 Next.js 16 nonce 指南改成 nonce/hash CSP，再移除 `unsafe-inline`   |
+| 登入僅密碼、未啟用 MFA         | 中       | 有集中式登入限流與 12 字元最低密碼                 | 公開管理後台前建議加 TOTP/WebAuthn 或企業 SSO                         |
+| 資料備份與保留政策未定         | 中       | PostgreSQL 可持久化，但尚未定義 PITR、刪除與保留期 | 啟用供應商備份，定義稽核與個資保留政策並演練還原                      |
+| 監控與告警未接                 | 中       | API 會安全失敗，但未外送錯誤與異常登入事件         | 接 Vercel Logs／監控，對 401/403/429/5xx 與 DB 錯誤告警               |
+| 照片上傳尚未實作               | 待追蹤   | 未有上傳攻擊面                                     | 實作時驗證 magic bytes、重新編碼、大小限制、私有儲存與短效 URL        |
+
+## 安全設定檢查
+
+- `.env*` 預設被 Git 忽略，只有不含真實秘密的 `.env.example` 可提交。
+- `BETTER_AUTH_SECRET` 至少 32 位隨機值；Production 與 Preview 使用不同秘密。
+- `BOOTSTRAP_ADMIN_PASSWORD` 只在本機執行一次，建立後立即移除；Vercel 不得設定。
+- PostgreSQL 帳號採最小權限並使用 TLS；Redis Token 不得加 `NEXT_PUBLIC_`。
+- GitHub 保持 Private，待本表的阻擋項完成並由你驗收後，再改 Public。

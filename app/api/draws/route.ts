@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { demoStore, executeDraw, publicState } from "@/lib/demo-store";
+import { authorize, verifySameOrigin } from "@/lib/authorization";
 import type { GiftPool } from "@/lib/draw-engine";
-import { checkRateLimit, verifyMutationRequest } from "@/lib/security";
+import { executePersistentDraw, getPublicState } from "@/lib/event-repository";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const errorMap: Record<string, { status: number; message: string }> = {
   EVENT_PAUSED: { status: 409, message: "活動目前暫停，恢復後再繼續。" },
@@ -13,18 +14,28 @@ const errorMap: Record<string, { status: number; message: string }> = {
 };
 
 export async function POST(request: NextRequest) {
-  const auth = verifyMutationRequest(request);
-  if (!auth.ok)
+  if (!verifySameOrigin(request))
     return NextResponse.json(
-      { message: auth.message },
-      { status: auth.status },
+      { message: "請求來源無法驗證。" },
+      { status: 403 },
     );
-  if (!checkRateLimit(`draw:${auth.sessionId}`)) {
+  const access = await authorize(request.headers, ["admin", "host"]);
+  if (!access.ok)
     return NextResponse.json(
-      { message: "抽獎請求太頻繁，請稍候再試。" },
-      { status: 429 },
+      { message: access.message },
+      { status: access.status },
     );
-  }
+  const limited = await enforceRateLimit("draw", access.principal.id);
+  if (!limited.success)
+    return NextResponse.json(
+      { message: limited.message },
+      {
+        status: limited.status,
+        headers: limited.retryAfter
+          ? { "Retry-After": String(limited.retryAfter) }
+          : undefined,
+      },
+    );
 
   const body: unknown = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -47,21 +58,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = executeDraw(demoStore, {
-      pool: pool as GiftPool,
-      slotNumber,
-      idempotencyKey,
-    });
+    const result = await executePersistentDraw(
+      {
+        pool: pool as GiftPool,
+        slotNumber,
+        idempotencyKey,
+      },
+      access.principal,
+    );
     return NextResponse.json(
-      { result, state: publicState(demoStore, pool as GiftPool) },
+      { result, state: await getPublicState(pool as GiftPool) },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     const code = error instanceof Error ? error.message : "UNKNOWN";
-    const mapped = errorMap[code] ?? {
-      status: 500,
-      message: "目前無法確認驚喜，請保留此格並重試。",
-    };
+    const mapped =
+      errorMap[code] ??
+      (code === "EVENT_NOT_CONFIGURED"
+        ? {
+            status: 503,
+            message: "活動資料庫尚未完成初始化。",
+          }
+        : {
+            status: 500,
+            message: "目前無法確認驚喜，請保留此格並重試。",
+          });
     return NextResponse.json(
       { message: mapped.message },
       { status: mapped.status },

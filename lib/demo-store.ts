@@ -6,24 +6,9 @@ import {
   type GiftPool,
   type RandomIndex,
 } from "./draw-engine";
+import type { DrawResult, Participant } from "./event-types";
 
-export type Participant = {
-  id: string;
-  name: string;
-  initials: string;
-  avatarTone: number;
-  message: string;
-};
-
-export type DrawResult = {
-  id: string;
-  pool: GiftPool;
-  sequence: number;
-  slotNumber: number;
-  drawer: Participant;
-  provider: Participant;
-  createdAt: string;
-};
+export type { DrawResult, Participant } from "./event-types";
 
 type IdempotencyRecord = {
   fingerprint: string;
