@@ -2176,6 +2176,339 @@ progress::-moz-progress-bar {
   }
 }
 
+/* Continuous candy-cane opening experience */
+:root {
+  --loading-pine: #194a36;
+  --homepage-egg: #fff0bc;
+  --opening-wipe-duration: 1030ms;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.opening-page {
+  position: relative;
+  min-height: 100svh;
+  overflow: hidden;
+  isolation: isolate;
+  display: grid;
+  align-items: center;
+  padding: clamp(46px, 7vw, 106px);
+  color: var(--ink);
+  background: var(--loading-pine);
+}
+
+.opening-background,
+.opening-grain,
+.opening-three-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.opening-background {
+  z-index: 0;
+  background: var(--homepage-egg);
+  clip-path: inset(0 0 100% 0);
+  will-change: clip-path;
+}
+
+.opening-page.has-background:not(.is-ready) .opening-background {
+  animation: opening-color-wipe var(--opening-wipe-duration)
+    cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.opening-page.is-ready .opening-background {
+  clip-path: inset(0);
+}
+
+.opening-grain {
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.23;
+  background-image:
+    radial-gradient(
+      circle at 13% 22%,
+      rgba(48, 45, 36, 0.18) 0 0.7px,
+      transparent 1px
+    ),
+    radial-gradient(
+      circle at 72% 58%,
+      rgba(255, 249, 233, 0.24) 0 0.8px,
+      transparent 1.2px
+    );
+  background-size:
+    19px 23px,
+    27px 31px;
+  mix-blend-mode: multiply;
+}
+
+.opening-three-scene {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.opening-preload-art {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: min(40vw, 430px);
+  height: min(58svh, 560px);
+  object-fit: contain;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 18px rgba(207, 160, 91, 0.28));
+  animation: opening-preload-sway 2.5s ease-in-out infinite;
+}
+
+.opening-three-scene canvas {
+  /* React Three Fiber injects canvas dimensions; the opening scene owns its viewport. */
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.opening-copy {
+  position: relative;
+  z-index: 3;
+  width: min(46vw, 730px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(24px);
+  pointer-events: none;
+}
+
+.opening-page.has-interface .opening-copy {
+  visibility: visible;
+  pointer-events: auto;
+  animation: opening-copy-in 900ms cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
+}
+
+.opening-copy h1 {
+  margin: 0;
+  max-width: 9.5ch;
+  color: var(--ink);
+  font: 700 clamp(4rem, 7.3vw, 8.75rem) / 0.78 var(--font-display);
+  letter-spacing: -0.072em;
+  text-wrap: balance;
+}
+
+.opening-copy h1 span {
+  display: block;
+  white-space: nowrap;
+}
+
+.opening-copy > p {
+  margin: clamp(25px, 3vw, 42px) 0 0;
+  max-width: 28em;
+  color: var(--ink);
+  font-size: clamp(1rem, 1.45vw, 1.35rem);
+  font-weight: 650;
+  line-height: 1.7;
+  letter-spacing: 0.06em;
+}
+
+.opening-actions {
+  margin-top: clamp(28px, 4.2vw, 54px);
+}
+
+.opening-actions .primary-cta {
+  min-width: min(350px, 100%);
+  min-height: 72px;
+  border-color: var(--antique-gold);
+}
+
+.opening-actions .primary-cta:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.opening-utility {
+  margin-top: 24px;
+}
+
+.opening-utility .admin-entry {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  margin: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid currentColor;
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.opening-skip {
+  position: absolute;
+  z-index: 5;
+  top: max(22px, env(safe-area-inset-top));
+  right: max(24px, env(safe-area-inset-right));
+  min-height: 42px;
+}
+
+.opening-skip button {
+  min-height: 42px;
+  padding: 8px 5px;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  color: var(--paper-raised);
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.opening-page.has-background .opening-skip button {
+  color: var(--ink);
+}
+
+.opening-fallback-art {
+  position: absolute;
+  z-index: 2;
+  right: clamp(20px, 5vw, 90px);
+  bottom: 0;
+  width: min(56vw, 790px);
+  height: min(92svh, 900px);
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.opening-page.is-leaving {
+  animation: opening-page-exit 650ms cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes opening-color-wipe {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@keyframes opening-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes opening-page-exit {
+  to {
+    opacity: 0;
+    transform: scale(1.025);
+    filter: saturate(0.84);
+  }
+}
+
+@keyframes opening-preload-sway {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) rotate(-8deg);
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(8deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .opening-page {
+    padding-inline: clamp(28px, 6vw, 56px);
+  }
+  .opening-copy {
+    width: 48vw;
+  }
+  .opening-copy h1 {
+    font-size: clamp(3.6rem, 8.7vw, 6.6rem);
+  }
+}
+
+@media (max-width: 760px) {
+  .opening-page {
+    min-height: 100svh;
+    align-items: end;
+    overflow-y: auto;
+    padding: 59svh 20px 44px;
+  }
+  .opening-copy {
+    width: 100%;
+    max-width: 560px;
+  }
+  .opening-copy h1 {
+    max-width: 8.8ch;
+    font-size: clamp(3rem, 14.4vw, 5.4rem);
+    line-height: 0.82;
+  }
+  .opening-copy > p {
+    margin-top: 22px;
+    font-size: 1rem;
+    letter-spacing: 0.035em;
+  }
+  .opening-actions {
+    margin-top: 26px;
+  }
+  .opening-actions .primary-cta {
+    width: 100%;
+    min-width: 0;
+    min-height: 58px;
+    font-size: 1rem;
+  }
+  .opening-fallback-art {
+    top: 18px;
+    right: 4%;
+    bottom: auto;
+    width: 92%;
+    height: 56svh;
+    object-position: center top;
+  }
+  .opening-preload-art {
+    width: min(70vw, 360px);
+    height: 54svh;
+  }
+}
+
+@media (max-width: 420px) {
+  .opening-page {
+    padding-inline: 17px;
+  }
+  .opening-copy h1 {
+    font-size: clamp(2.75rem, 14vw, 4.2rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opening-page.has-background .opening-background,
+  .opening-page.has-interface .opening-copy,
+  .opening-page.is-leaving {
+    animation: none !important;
+  }
+  .opening-page.has-background .opening-background {
+    clip-path: inset(0);
+  }
+  .opening-page.has-interface .opening-copy {
+    opacity: 1;
+    transform: none;
+  }
+  .opening-page.is-leaving {
+    opacity: 0;
+  }
+  .opening-preload-art {
+    /* Accessibility override must suppress the temporary preload animation. */
+    animation: none !important;
+  }
+}
+
 /* Authentication uses the same printed-paper system as the stage, with one
    deliberate signature: a narrow berry ticket edge that marks protected space. */
 .auth-page {

@@ -3,6 +3,8 @@ version: alpha
 colors:
   paper: "#F4EEDB"
   paperRaised: "#FFF9E9"
+  loadingPine: "#194A36"
+  homepageEgg: "#FFF0BC"
   primary: "#B63439"
   olive: "#69724D"
   pine: "#344E37"
@@ -32,6 +34,12 @@ spacing:
   lg: "28px"
   xl: "48px"
 components:
+  openingLoading:
+    backgroundColor: "{colors.loadingPine}"
+    textColor: "{colors.paperRaised}"
+  openingHomepage:
+    backgroundColor: "{colors.homepageEgg}"
+    textColor: "{colors.ink}"
   page:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
@@ -70,11 +78,11 @@ components:
 
 ## Overview
 
-The product should feel like a host opening a well loved 1950s Christmas storybook on a projector. The public cover may be theatrical, while the live stage stays legible and calm enough for fifty people to follow. Its memorable signature is a paper theater: a tactile 3D parcel becomes a torn-paper portal, then each selected wrapping surface dents, cracks, and finally opens into a portrait frame. Avoid neon, glass effects, glossy photorealistic 3D, generic SaaS cards, and decorations that compete with slot numbers.
+The product should feel like a host opening a well loved 1950s Christmas storybook on a projector. The public cover may be theatrical, while the live stage stays legible and calm enough for fifty people to follow. Its memorable opening signature is one continuous magical actor: a centered candy cane waits on a deep green field, flies outward as the page changes to egg yellow, then dissolves into gold dust that builds the right-side tree and gifts. The interactive signature that follows remains the tactile paper wall: each selected wrapping surface dents, cracks, and finally opens into a portrait frame. Avoid neon, glass effects, glossy photorealistic 3D, generic SaaS cards, and decorations that compete with slot numbers.
 
 ## Colors
 
-Cream paper owns most of the canvas. Pine and ink carry readable information; berry red is reserved for the primary action and active state. Antique gold is a thin printed accent, never a low contrast text color. Dusty pink belongs to reveal portraits and small paper scraps.
+Cream paper owns most product surfaces. The opening begins on `loadingPine` and finishes on `homepageEgg`; these two fields are narrative states, not interchangeable page backgrounds. Pine and ink carry readable information; berry red is reserved for the primary action and active state. Antique gold is a thin printed accent and particle color, never a low contrast text color. Dusty pink belongs to reveal portraits and small paper scraps.
 
 The runtime source of truth is `app/globals.css`. Variables there map one to one to the values above; DOM components consume variables directly and the Three.js scene reads those same computed CSS variables at runtime. Scene materials must not introduce an independent palette.
 
@@ -84,7 +92,7 @@ English display copy uses the system serif stack with restrained letterpress tex
 
 ## Layout
 
-The cover is an editorial two-column storybook spread: title and action on the left, the interactive paper theater on the right. Narrow screens place the theater first so the signature remains in the first viewport. The stage uses one status rail and an open gift wall, not nested cards. Desktop targets ten columns; tablets and phones collapse naturally to five and three or four columns. The wall owns its scroll only when the surrounding product shell requires it; this implementation keeps document scrolling.
+The finished cover is an open editorial two-column storybook spread without a framed theater: title and action on the left, the generated 3D tree and gifts on the right. During loading, the candy cane owns the exact center of the viewport. Narrow screens place the tree above the copy so the signature remains in the first viewport. The stage uses one status rail and an open gift wall, not nested cards. Desktop targets ten columns; tablets and phones collapse naturally to five and three or four columns. The wall owns its scroll only when the surrounding product shell requires it; this implementation keeps document scrolling.
 
 The admin route uses a quieter operations-ledger register: one dark pine navigation rail, one cream working surface, semantic tables, and horizontal health strips. It keeps natural document scrolling; table overflow belongs to each table wrapper rather than the page shell.
 
@@ -100,7 +108,9 @@ Edges are slightly irregular and mostly square. Primary buttons use clipped tick
 
 Gift slots share six wrapping patterns and a single semantic state model: ready, first hit, second hit, draw pending, breaking, reveal, closing, and opened. The WebGL shader visualizes pressure and tearing but never advances the draw; the reducer and server response own phase changes. Reveal dialogs use the same close behavior, inert background, focus treatment, and postcard anatomy whether opened from a new draw or replayed from the wall.
 
-Three.js is reserved for four high-value layers: the cover parcel, ambient stage particles, the one active punch surface, and the reveal atmosphere. The 50 gift controls remain semantic DOM buttons. High, standard, and low effect levels adjust DPR and particle/fragment counts; reduced-motion and WebGL fallback paths keep every operation available without spatial animation.
+Three.js is reserved for four high-value layers: the continuous candy-cane opening scene, ambient stage particles, the one active punch surface, and the reveal atmosphere. The 50 gift controls remain semantic DOM buttons. High, standard, and low effect levels adjust DPR and particle/fragment counts; reduced-motion and WebGL fallback paths keep every operation available without spatial animation.
+
+The cover layer now owns a single seven-second state-driven sequence: loading sway, spiral expansion, top-to-bottom background wipe, return flight, candy-cane dissolve, tree generation, gift generation, and interface reveal. Timing values live in `lib/opening-experience.ts`; the Three.js scene consumes them rather than inventing local delays. Reduced motion and unavailable WebGL resolve directly to the completed homepage composition.
 
 Admin status tags use text plus tone, never color alone. The participant and gift datasets are bounded to 50 rows per pool and remain semantic tables. The dashboard search is local and intentionally transient so participant names do not enter shareable URLs.
 
@@ -110,8 +120,10 @@ Admin status tags use text plus tone, never color alone. The participant and gif
 - Do keep all interactive controls code native and keyboard reachable.
 - Do let pattern and paper texture express the theme.
 - Do lazy-load WebGL and GSAP code and dispose generated textures when a scene unmounts.
+- Do keep the opening candy cane, background wipe, gold spiral, tree reveal, and copy entrance on one shared timeline.
 - Do wait for a successful server response before the breaking and reveal phases.
 - Do not place decorative imagery over controls or status text.
 - Do not use color as the only state cue.
 - Do not imply that animation decides a draw result.
 - Do not create one canvas per unopened gift or make the canvas the interactive control.
+- Do not reintroduce the framed gift-box theater on the public cover or make the loading scene compete with visible marketing copy.

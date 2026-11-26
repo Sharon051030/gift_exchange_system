@@ -25,10 +25,10 @@ import {
   type QualityLevel,
 } from "./three/visual-preferences";
 
-const CoverThreeScene = dynamic(
+const OpeningThreeScene = dynamic(
   () =>
-    import("./three/ChristmasThreeScene").then(
-      (module) => module.CoverThreeScene,
+    import("./three/OpeningThreeScene").then(
+      (module) => module.OpeningThreeScene,
     ),
   { ssr: false },
 );
@@ -125,7 +125,7 @@ export function ChristmasExperience() {
   const revealTimerRef = useRef<number | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
   const playSound = usePaperSound(soundEnabled);
-  const { quality, reducedMotion, webglAvailable, cycleQuality } =
+  const { quality, reducedMotion, webglAvailable, visualReady, cycleQuality } =
     useVisualPreferences();
 
   const activeSlot = interaction.slotNumber;
@@ -187,7 +187,7 @@ export function ChristmasExperience() {
     void loadState(pool);
     coverTimerRef.current = window.setTimeout(
       () => setCoverVisible(false),
-      skipAnimation || reducedMotion ? 20 : 1320,
+      skipAnimation || reducedMotion ? 20 : 680,
     );
   }
 
@@ -345,7 +345,7 @@ export function ChristmasExperience() {
         quality={quality}
         reducedMotion={reducedMotion}
         webglAvailable={webglAvailable}
-        onCycleQuality={cycleQuality}
+        visualReady={visualReady}
       />
     );
   }
@@ -645,99 +645,151 @@ function Cover({
   quality,
   reducedMotion,
   webglAvailable,
-  onCycleQuality,
+  visualReady,
 }: {
   leaving: boolean;
   onEnter: (skipAnimation?: boolean) => void;
   quality: QualityLevel;
   reducedMotion: boolean;
   webglAvailable: boolean;
-  onCycleQuality: () => void;
+  visualReady: boolean;
 }) {
+  const [openingMode, setOpeningMode] = useState<
+    "loading" | "playing" | "ready"
+  >("loading");
+  const [backgroundVisible, setBackgroundVisible] = useState(false);
+  const [interfaceVisible, setInterfaceVisible] = useState(false);
+  const [sceneReady, setSceneReady] = useState(false);
+  const mountedAtRef = useRef(0);
+  const sceneStartedRef = useRef(false);
+  const openingTimerRef = useRef<number | null>(null);
+  const bypassOpening = visualReady && (reducedMotion || !webglAvailable);
+  const currentOpeningMode = bypassOpening ? "ready" : openingMode;
+  const showBackground = bypassOpening || backgroundVisible;
+  const showInterface = bypassOpening || interfaceVisible;
+
+  useEffect(() => {
+    mountedAtRef.current = performance.now();
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (openingTimerRef.current !== null) {
+        window.clearTimeout(openingTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleSceneReady = useCallback(() => {
+    setSceneReady(true);
+    if (sceneStartedRef.current || reducedMotion) return;
+    sceneStartedRef.current = true;
+    const elapsed = performance.now() - mountedAtRef.current;
+    openingTimerRef.current = window.setTimeout(
+      () => setOpeningMode("playing"),
+      Math.max(0, 900 - elapsed),
+    );
+  }, [reducedMotion]);
+
+  const finishOpening = useCallback(() => {
+    sceneStartedRef.current = true;
+    if (openingTimerRef.current !== null) {
+      window.clearTimeout(openingTimerRef.current);
+      openingTimerRef.current = null;
+    }
+    setBackgroundVisible(true);
+    setInterfaceVisible(true);
+    setOpeningMode("ready");
+  }, []);
+
   return (
     <main
-      className={`cover-page cover-storybook ${leaving ? "is-leaving" : ""}`}
+      className={`opening-page is-${currentOpeningMode} ${
+        showBackground ? "has-background" : ""
+      } ${showInterface ? "has-interface" : ""} ${leaving ? "is-leaving" : ""}`}
     >
-      <div className="cover-frame" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
+      <div className="opening-background" aria-hidden="true" />
+      <div className="opening-grain" aria-hidden="true" />
+
+      <div className="opening-skip">
+        {currentOpeningMode !== "ready" ? (
+          <button type="button" onClick={finishOpening}>
+            略過動畫
+          </button>
+        ) : null}
       </div>
-      <section className="cover-copy" aria-labelledby="cover-title">
-        <div className="cover-edition">
-          <span>互動聖誕故事</span>
-          <span>NO. 50</span>
-        </div>
-        <div className="cover-heading">
-          <span className="cover-star" aria-hidden="true">
-            ✦
-          </span>
-          <h1 id="cover-title">
-            Christmas
-            <span>Mystery Gift</span>
-          </h1>
-          <p>拆開禮物之前，先拆開今天的驚喜。</p>
-        </div>
-        <div className="cover-actions">
+
+      <section
+        className="opening-copy"
+        aria-labelledby="cover-title"
+        aria-hidden={!showInterface}
+        inert={!showInterface ? true : undefined}
+      >
+        <h1 id="cover-title">
+          Christmas
+          <span>Mystery Gift</span>
+        </h1>
+        <p>拆開禮物之前，先拆開今天的驚喜。</p>
+        <div className="opening-actions">
           <button
             className="primary-cta"
             type="button"
-            disabled={leaving}
+            disabled={leaving || currentOpeningMode !== "ready"}
             onClick={() => onEnter(false)}
           >
-            {leaving ? "穿越包裝紙中…" : "開啟聖誕驚喜"}
-          </button>
-          <button
-            className="skip-link"
-            type="button"
-            disabled={leaving}
-            onClick={() => onEnter(true)}
-          >
-            略過轉場
+            開啟聖誕驚喜
           </button>
         </div>
-        <div className="cover-utility">
-          <button type="button" onClick={onCycleQuality}>
-            特效：{reducedMotion ? "減少動態" : qualityLabel(quality)}
-          </button>
+        <div className="opening-utility">
           <Link className="admin-entry" href="/admin">
             主持控制台
           </Link>
         </div>
       </section>
 
-      <section className={`cover-theater ${webglAvailable ? "has-webgl" : ""}`}>
-        <div className="theater-caption">
-          <span>THE PAPER THEATER</span>
-          <strong>一份會回應你的禮物</strong>
-        </div>
+      {visualReady && !webglAvailable ? (
         <Image
-          className="cover-fallback-image"
-          src="/assets/hero-gift.png"
-          alt="紅色緞帶與復古包裝紙裝飾的聖誕禮物盒"
-          width={1536}
-          height={1024}
+          className="opening-fallback-art"
+          src="/assets/opening-tree-fallback.png"
+          alt="金色星光環繞的立體聖誕樹與禮物盒"
+          width={1072}
+          height={1434}
           priority
-          sizes="(max-width: 820px) 94vw, 54vw"
+          sizes="(max-width: 760px) 92vw, 58vw"
         />
-        {webglAvailable ? (
-          <CoverThreeScene
+      ) : visualReady ? (
+        <>
+          {!sceneReady && currentOpeningMode === "loading" ? (
+            <Image
+              className="opening-preload-art"
+              src="/assets/opening-candy-preload.png"
+              alt=""
+              width={1536}
+              height={1536}
+              priority
+              aria-hidden="true"
+            />
+          ) : null}
+          <OpeningThreeScene
+            mode={currentOpeningMode}
             quality={quality}
             reducedMotion={reducedMotion}
-            leaving={leaving}
+            onSceneReady={handleSceneReady}
+            onBackgroundStart={() => setBackgroundVisible(true)}
+            onInterfaceReveal={() => setInterfaceVisible(true)}
+            onComplete={finishOpening}
           />
-        ) : null}
-        <div className="theater-seal" aria-hidden="true">
-          <span>CMG</span>
-          <small>2026</small>
-        </div>
-      </section>
-      <div className="torn-horizon" aria-hidden="true" />
-      <div className="paper-transition" aria-hidden="true">
-        <span />
-        <span />
-      </div>
+        </>
+      ) : null}
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {currentOpeningMode === "loading"
+          ? "載入聖誕場景中"
+          : currentOpeningMode === "playing"
+            ? "聖誕場景生成中"
+            : "聖誕場景已準備完成"}
+      </p>
     </main>
   );
 }

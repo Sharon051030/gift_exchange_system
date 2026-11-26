@@ -43,6 +43,7 @@ export function useVisualPreferences() {
   const [quality, setQualityState] = useState<QualityLevel>("standard");
   const [reducedMotion, setReducedMotion] = useState(false);
   const [webglAvailable, setWebglAvailable] = useState(false);
+  const [visualReady, setVisualReady] = useState(false);
 
   useEffect(() => {
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -63,6 +64,7 @@ export function useVisualPreferences() {
       setQualityState(nextQuality);
       setReducedMotion(motionQuery.matches);
       setWebglAvailable(supportsWebGl());
+      setVisualReady(true);
     });
 
     const handleMotionChange = (event: MediaQueryListEvent) => {
@@ -88,7 +90,7 @@ export function useVisualPreferences() {
     });
   }, []);
 
-  return { quality, reducedMotion, webglAvailable, cycleQuality };
+  return { quality, reducedMotion, webglAvailable, visualReady, cycleQuality };
 }
 
 export function qualityLabel(quality: QualityLevel) {
