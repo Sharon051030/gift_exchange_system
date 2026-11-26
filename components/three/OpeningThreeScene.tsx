@@ -3,7 +3,11 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { getOpeningFrame, OPENING_TIMELINE } from "@/lib/opening-experience";
+import {
+  getOpeningFrame,
+  OPENING_TIMELINE,
+  segmentProgress,
+} from "@/lib/opening-experience";
 import {
   candyMap,
   createContactTexture,
@@ -25,6 +29,7 @@ type OpeningSceneProps = {
   mode: OpeningMode;
   quality: QualityLevel;
   reducedMotion: boolean;
+  inView: boolean;
   onSceneReady: (grain: string) => void;
   onProgress: (background: number, copy: number) => void;
   onComplete: () => void;
@@ -32,9 +37,9 @@ type OpeningSceneProps = {
 
 const FRAME_HEIGHT = 7;
 const QUALITY = {
-  high: { dpr: 1.65, motes: 182 },
-  standard: { dpr: 1.35, motes: 130 },
-  low: { dpr: 1, motes: 76 },
+  high: { dpr: 1.65, motes: 136 },
+  standard: { dpr: 1.35, motes: 94 },
+  low: { dpr: 1, motes: 54 },
 } as const;
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -55,23 +60,82 @@ function updatePoints(points: THREE.BufferAttribute) {
   points.needsUpdate = true;
 }
 
-function setTableauOpacity(
+function growSection(section: THREE.Object3D, progress: number) {
+  section.visible = progress > 0;
+  section.scale.set(1, Math.max(0.01, progress), 1);
+}
+
+function assembleModel(
   model: ReturnType<typeof createChristmasModel>,
-  reveal: number,
+  tree: number,
+  gifts: number,
 ) {
-  model.group.visible = reveal > 0;
-  const fading = reveal > 0 && reveal < 1;
-  model.depth.visible = fading;
-  for (const material of model.materials) {
-    if (material.transparent !== fading) {
-      material.transparent = fading;
-      material.depthWrite = !fading;
-      material.needsUpdate = true;
-    }
-    material.opacity = reveal;
-  }
-  for (const { material, opacity } of model.shadows)
-    material.opacity = opacity * reveal;
+  model.group.visible = tree > 0;
+  const star = fade(tree / 0.17);
+  model.star.visible = star > 0;
+  model.star.scale.setScalar(Math.max(0.01, star));
+  model.branches.forEach((branch, index) =>
+    growSection(branch, fade((tree - 0.13 - index * 0.142) / 0.22)),
+  );
+  model.baubles.forEach((bauble, index) => {
+    const show = fade((tree - 0.44 - index * 0.077) / 0.12);
+    bauble.visible = show > 0;
+    bauble.scale.setScalar(Math.max(0.01, show));
+  });
+  growSection(model.trunk, fade((tree - 0.77) / 0.23));
+  setOpacity(
+    model.ground.material,
+    model.ground.opacity * fade((tree - 0.7) / 0.3),
+  );
+
+  model.presents.forEach(({ box, x, z, rotation, contactShadow }, index) => {
+    const delay = index * 0.095;
+    const t = segmentProgress(gifts, { start: delay, end: delay + 0.62 });
+    const spread = 1 - (1 - t) ** 2;
+    const rise =
+      t < 0.79
+        ? Math.sin((Math.PI * t) / 0.79) * (0.42 + index * 0.043)
+        : Math.sin((Math.PI * (t - 0.79)) / 0.21) * 0.075;
+    box.visible = t > 0;
+    box.position.set(
+      x * spread,
+      -2.44 + rise,
+      THREE.MathUtils.lerp(0.38, z, spread),
+    );
+    box.rotation.set(
+      0,
+      rotation * spread,
+      Math.sign(x) * 0.24 * Math.sin(Math.PI * t),
+    );
+    box.scale.setScalar(THREE.MathUtils.lerp(0.16, 1, fade(t / 0.64)));
+    setOpacity(
+      contactShadow.material,
+      contactShadow.opacity * fade((t - 0.5) / 0.5),
+    );
+  });
+}
+
+function makeFlight(
+  width: number,
+  artX: number,
+  artY: number,
+  artScale: number,
+) {
+  const points = Array.from({ length: 22 }, (_, i) => {
+    const p = i / 21;
+    const angle = 2.35 - Math.PI * 2 * 1.48 * p;
+    return new THREE.Vector3(
+      Math.cos(angle) * width * 0.176 * p,
+      Math.sin(angle) * 2.05 * p,
+      p * 0.34,
+    );
+  });
+  points.push(
+    new THREE.Vector3(artX + artScale * 1.03, artY - artScale * 0.3, 0.24),
+    new THREE.Vector3(artX + artScale * 0.57, artY + artScale * 1.84, 0.22),
+    new THREE.Vector3(artX, artY + artScale * 2.45, 0.18),
+  );
+  return new THREE.CatmullRomCurve3(points);
 }
 
 function garlandPoint(t: number, point: THREE.Vector3) {
@@ -188,17 +252,14 @@ function OpeningWorld({
   const camera = useThree((state) => state.camera);
   const count = QUALITY[quality].motes;
   const assets = useMemo(() => createOpeningAssets(count), [count]);
-  const loadingPoints = useMemo(
-    () => makePoints(Math.floor(count / 4)),
-    [count],
-  );
-  const trailPoints = useMemo(() => makePoints(count), [count]);
+  const particles = useMemo(() => makePoints(count), [count]);
+  const initialParticles = useMemo(() => new Float32Array(count * 3), [count]);
   const nowPoint = useMemo(() => new THREE.Vector3(), []);
   const sample = useMemo(() => new THREE.Vector3(), []);
+  const destination = useMemo(() => new THREE.Vector3(), []);
   const heroRef = useRef<THREE.Group>(null);
   const starsRef = useRef<THREE.Group>(null);
-  const loadingGlowRef = useRef<THREE.PointsMaterial>(null);
-  const trailGlowRef = useRef<THREE.PointsMaterial>(null);
+  const glowRef = useRef<THREE.PointsMaterial>(null);
   const ribbonRef = useRef<THREE.MeshBasicMaterial>(null);
   const startRef = useRef<number | null>(null);
   const readyRef = useRef(false);
@@ -213,17 +274,7 @@ function OpeningWorld({
   const artY = mobile ? 1.5 : -0.22;
   const candyScale = mobile ? Math.min(1, width / 3.3) : 1.18;
   const flight = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(-width * 0.105, 0.42, 0.12),
-        new THREE.Vector3(-width * 0.045, 1.16, 0.18),
-        new THREE.Vector3(width * 0.095, 0.89, 0.29),
-        new THREE.Vector3(width * 0.19, -0.59, 0.35),
-        new THREE.Vector3(artX + artScale * 0.84, artY - artScale * 0.7, 0.28),
-        new THREE.Vector3(artX + artScale * 0.89, artY + artScale * 1.16, 0.12),
-        new THREE.Vector3(artX, artY + artScale * 2.47, 0),
-      ]),
+    () => makeFlight(width, artX, artY, artScale),
     [artX, artY, artScale, width],
   );
 
@@ -239,18 +290,19 @@ function OpeningWorld({
         assets.star,
         assets.ribbon,
       ]);
-      assets.model.group.traverse((part) => {
-        if (part instanceof THREE.Mesh) geometries.add(part.geometry);
-      });
-      geometries.forEach((geometry) => geometry.dispose());
-      for (const material of [
+      const materials = new Set<THREE.Material>([
         assets.candyMaterial,
         assets.starMaterial,
-        ...assets.model.materials,
-      ])
-        material.dispose();
-      for (const { material } of assets.model.shadows) material.dispose();
-      assets.model.depthMaterial.dispose();
+      ]);
+      assets.model.group.traverse((part) => {
+        if (part instanceof THREE.Mesh) {
+          geometries.add(part.geometry);
+          if (part.material instanceof THREE.Material)
+            materials.add(part.material);
+        }
+      });
+      geometries.forEach((geometry) => geometry.dispose());
+      materials.forEach((material) => material.dispose());
       for (const texture of [
         assets.paper,
         assets.candyTexture,
@@ -265,20 +317,22 @@ function OpeningWorld({
   useFrame(({ clock }) => {
     const hero = heroRef.current;
     const stars = starsRef.current;
-    const loadingGlow = loadingGlowRef.current;
-    const trailGlow = trailGlowRef.current;
+    const glow = glowRef.current;
     const ribbon = ribbonRef.current;
-    if (!hero || !stars || !loadingGlow || !trailGlow || !ribbon) return;
+    if (!hero || !stars || !glow || !ribbon) return;
 
     const time = clock.elapsedTime;
-    if (mode === "playing") startRef.current ??= time;
+    if (mode === "playing" && startRef.current === null) {
+      startRef.current = time;
+      // Keep the exact positions from the last loading frame as the launch pose.
+      initialParticles.set(particles.array);
+    }
     const elapsed =
       mode === "ready"
         ? OPENING_TIMELINE.total
         : time - (startRef.current ?? time);
     const frame = getOpeningFrame(elapsed);
     const dissolve = smooth(frame.dissolve);
-    const reveal = smooth(frame.tableau);
     const travel = smooth(frame.flight);
     const skyFade = 1 - fade(frame.background * 1.5);
     const { model, candyMaterial, starMaterial, sparkSeeds } = assets;
@@ -287,7 +341,7 @@ function OpeningWorld({
     if (hero.visible) {
       if (mode === "loading")
         loadingAngleRef.current = -0.22 + Math.sin(time * 2.05) * 0.08;
-      flight.getPoint(travel, nowPoint);
+      flight.getPointAt(travel, nowPoint);
       const scale =
         candyScale * THREE.MathUtils.lerp(1, 0.16, smooth(frame.flight));
       hero.position.copy(nowPoint);
@@ -295,31 +349,32 @@ function OpeningWorld({
       hero.rotation.set(
         -0.08,
         -0.14 + Math.sin(travel * Math.PI) * 0.66,
-        loadingAngleRef.current - travel * Math.PI * 1.8,
+        loadingAngleRef.current - travel * Math.PI * 2.5,
       );
       setOpacity(candyMaterial, 1 - dissolve);
     }
 
     stars.visible = skyFade > 0;
-    if (stars.visible) {
-      setOpacity(starMaterial, skyFade);
-      loadingGlow.opacity = 0.91 * skyFade;
-      for (let i = 0; i < loadingPoints.count; i++) {
+    if (stars.visible) setOpacity(starMaterial, skyFade);
+
+    if (mode === "loading") {
+      for (let i = 0; i < particles.count; i++) {
         const seed = sparkSeeds[i];
-        loadingPoints.setXYZ(
+        const radius = 0.4 + seed.depth * 0.6;
+        particles.setXYZ(
           i,
-          seed.x * width * 0.34 + Math.sin(time + seed.phase * 8) * 0.12,
-          seed.y * 2.65 + Math.cos(time * 0.75 + seed.phase * 11) * 0.14,
-          -0.18,
+          seed.x * Math.min(width * 0.36, 3.5) * radius +
+            Math.sin(time + seed.phase * 8) * 0.12,
+          seed.y * 2.75 * radius +
+            Math.cos(time * 0.75 + seed.phase * 11) * 0.14,
+          -0.22 + seed.depth * 0.24,
         );
       }
-      updatePoints(loadingPoints);
     }
 
-    setTableauOpacity(model, reveal);
+    assembleModel(model, frame.tree, frame.gifts);
 
     if (mode !== "loading") {
-      const halo = fade(frame.flight * 3);
       const garland = smooth(frame.garland);
       const thread = assets.ribbon.index;
       ribbon.opacity = garland * 0.88;
@@ -327,37 +382,39 @@ function OpeningWorld({
         0,
         thread ? Math.floor((thread.count / 24) * garland) * 24 : 0,
       );
-      trailGlow.opacity = Math.max(halo * (1 - dissolve), garland) * 0.92;
+      glow.size = 13 + Math.sin(Math.PI * frame.flight) * 4;
       for (let i = 0; i < count; i++) {
         const seed = sparkSeeds[i];
-        const t = (seed.phase + time * (0.035 + seed.depth * 0.028)) % 1;
-        if (frame.dissolve < seed.phase) {
-          flight.getPoint(Math.max(0, travel - t * 0.18), sample);
-          const spread = seed.spread * (0.35 + t + dissolve);
-          sample.set(
-            sample.x + seed.x * spread,
-            sample.y + seed.y * spread * 0.83,
-            sample.z + 0.24,
-          );
-        } else {
-          garlandPoint(t * garland, sample);
-          sample.set(
-            artX + (sample.x + seed.x * seed.spread) * artScale,
-            artY + (sample.y + seed.y * seed.spread) * artScale,
-            (sample.z + 0.22 + seed.depth * seed.spread) * artScale,
-          );
-          if (dissolve < 1 && garland < 1) {
-            // The same sparks leave the candy and land on the opening turn of the garland.
-            sample.lerp(
-              hero.position,
-              1 - fade((frame.dissolve - seed.phase) * 5),
-            );
-          }
-        }
-        trailPoints.setXYZ(i, sample.x, sample.y, sample.z);
+        const drift = Math.sin(time * 1.6 + seed.depth * 10) * 0.034;
+        const lag =
+          (0.018 + seed.phase * 0.16) * Math.sin((travel * Math.PI) / 2);
+        flight.getPointAt(Math.max(0, travel - lag), sample);
+        const spread = seed.spread * 0.4;
+        sample.set(
+          sample.x + seed.x * spread + drift,
+          sample.y + seed.y * spread,
+          sample.z + seed.depth * 0.3,
+        );
+        const gather = fade(frame.gather * (1 + seed.depth * 0.55));
+        sample.lerp(destination.fromArray(initialParticles, i * 3), 1 - gather);
+
+        const settle = fade((frame.garland - seed.phase * 0.35) / 0.65);
+        const ribbonPosition = THREE.MathUtils.clamp(
+          seed.phase * garland + drift,
+          0,
+          1,
+        );
+        garlandPoint(ribbonPosition, destination);
+        destination.set(
+          artX + (destination.x + seed.x * seed.spread * 0.75) * artScale,
+          artY + (destination.y + seed.y * seed.spread * 0.75) * artScale,
+          (destination.z + 0.22 + seed.depth * seed.spread) * artScale,
+        );
+        sample.lerp(destination, settle);
+        particles.setXYZ(i, sample.x, sample.y, sample.z);
       }
-      updatePoints(trailPoints);
     }
+    updatePoints(particles);
 
     if (!readyRef.current) {
       readyRef.current = true;
@@ -374,19 +431,24 @@ function OpeningWorld({
 
   return (
     <>
-      <hemisphereLight args={["#fff1ce", "#a68763", 1.4]} />
-      <ambientLight color="#f8e0bd" intensity={0.41} />
-      <directionalLight position={[-4, 6, 4]} intensity={2.8} color="#ffe5b0" />
+      <hemisphereLight args={["#fff2d4", "#b68e65", 1.2]} />
+      <ambientLight color="#ffe6b8" intensity={0.3} />
       <directionalLight
-        position={[-4, 3, -3]}
-        intensity={2.6}
-        color="#ffd17e"
+        position={[-5.8, 7, 4.5]}
+        intensity={3.35}
+        color="#ffe6ae"
+        castShadow={quality !== "low"}
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-left={-8}
+        shadow-camera-right={8}
+        shadow-camera-top={8}
+        shadow-camera-bottom={-8}
+        shadow-camera-far={28}
+        shadow-normalBias={0.028}
+        shadow-bias={-0.0003}
+        shadow-radius={3}
       />
-      <directionalLight
-        position={[4, 0.4, 2]}
-        intensity={0.31}
-        color="#c6d7c2"
-      />
+      <directionalLight position={[3, 2, 4]} intensity={0.64} color="#f2dfb1" />
       <group ref={heroRef} visible={mode !== "ready"}>
         <mesh geometry={assets.candy} material={assets.candyMaterial} />
       </group>
@@ -401,24 +463,9 @@ function OpeningWorld({
             rotation={[0, 0.12 + 0.07 * index, -0.24 + 0.06 * index]}
           />
         ))}
-        <points frustumCulled={false}>
-          <bufferGeometry>
-            <primitive object={loadingPoints} attach="attributes-position" />
-          </bufferGeometry>
-          <pointsMaterial
-            ref={loadingGlowRef}
-            map={assets.glow}
-            size={19}
-            sizeAttenuation={false}
-            transparent
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </points>
       </group>
       <group position={[artX, artY, 0]} scale={artScale}>
         <group rotation={[0.15, 0, 0]}>
-          <primitive object={assets.model.depth} />
           <primitive object={assets.model.group} />
         </group>
         <mesh geometry={assets.ribbon}>
@@ -434,15 +481,15 @@ function OpeningWorld({
       </group>
       <points frustumCulled={false}>
         <bufferGeometry>
-          <primitive object={trailPoints} attach="attributes-position" />
+          <primitive object={particles} attach="attributes-position" />
         </bufferGeometry>
         <pointsMaterial
-          ref={trailGlowRef}
+          ref={glowRef}
           map={assets.glow}
-          size={14}
+          size={13}
           sizeAttenuation={false}
           transparent
-          opacity={0}
+          opacity={0.94}
           depthWrite={false}
           toneMapped={false}
         />
@@ -464,8 +511,9 @@ export function OpeningThreeScene(props: OpeningSceneProps) {
         orthographic
         camera={OPENING_CAMERA}
         dpr={QUALITY[props.quality].dpr}
+        shadows={props.quality === "low" ? false : "percentage"}
         gl={{ antialias: true, alpha: true }}
-        frameloop={props.reducedMotion ? "demand" : "always"}
+        frameloop={props.reducedMotion || !props.inView ? "demand" : "always"}
       >
         <OpeningWorld {...props} />
       </Canvas>

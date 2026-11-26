@@ -114,8 +114,9 @@ export async function getPublicState(pool: GiftPool) {
       start_participant_id: string;
       current_participant_id: string;
       complete: boolean;
+      version: string;
     }>(
-      `SELECT start_participant_id, current_participant_id, complete
+      `SELECT start_participant_id, current_participant_id, complete, version::text AS version
        FROM pool_states WHERE event_id = $1 AND pool = $2`,
       [DEFAULT_EVENT_ID, pool],
     ),
@@ -139,13 +140,19 @@ export async function getPublicState(pool: GiftPool) {
     openedCount: opened.length,
     remaining: participants.length - opened.length,
     complete: poolState.complete,
+    version: poolState.version,
     currentDrawer,
     opened,
   };
 }
 
 export async function executePersistentDraw(
-  input: { pool: GiftPool; slotNumber: number; idempotencyKey: string },
+  input: {
+    pool: GiftPool;
+    slotNumber: number;
+    idempotencyKey: string;
+    expectedVersion: string;
+  },
   actor: { id: string; name: string },
   randomIndex: RandomIndex = (length) => randomInt(length),
 ) {
@@ -155,8 +162,9 @@ export async function executePersistentDraw(
       start_participant_id: string;
       current_participant_id: string;
       complete: boolean;
+      version: string;
     }>(
-      `SELECT e.paused, ps.start_participant_id, ps.current_participant_id, ps.complete
+      `SELECT e.paused, ps.start_participant_id, ps.current_participant_id, ps.complete, ps.version::text AS version
        FROM pool_states ps JOIN events e ON e.id = ps.event_id
        WHERE ps.event_id = $1 AND ps.pool = $2
        FOR UPDATE OF e, ps`,
@@ -180,6 +188,7 @@ export async function executePersistentDraw(
 
     if (state.paused) throw new Error("EVENT_PAUSED");
     if (state.complete) throw new Error("CHAIN_COMPLETE");
+    if (state.version !== input.expectedVersion) throw new Error("STALE_TURN");
     if (
       !Number.isInteger(input.slotNumber) ||
       input.slotNumber < 1 ||

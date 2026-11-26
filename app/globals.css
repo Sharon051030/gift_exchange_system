@@ -2177,9 +2177,17 @@ progress::-moz-progress-bar {
 }
 
 /* Continuous candy-cane opening experience */
+@font-face {
+  font-family: "Bodoni Moda Opening";
+  src: url("/assets/bodoni-moda-italic.ttf") format("truetype");
+  font-weight: 400 900;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --loading-pine: #103c29;
-  --homepage-egg: #ffe2a4;
+  --homepage-egg: #ffdfa0;
 }
 
 .sr-only {
@@ -2218,8 +2226,9 @@ progress::-moz-progress-bar {
 .opening-background {
   z-index: 0;
   background:
-    radial-gradient(ellipse at 51% 29%, #fff0c5, transparent 77%),
-    linear-gradient(175deg, transparent 55%, #d89c4b45), var(--homepage-egg);
+    radial-gradient(ellipse at 24% 14%, #fff3cf, transparent 76%),
+    linear-gradient(132deg, #fff0c440 22%, transparent 54%, #f5ad4a36),
+    var(--homepage-egg);
   mask-image: linear-gradient(
     to bottom,
     #000 var(--wash-top, -34%),
@@ -2234,7 +2243,7 @@ progress::-moz-progress-bar {
 .opening-grain {
   z-index: 1;
   pointer-events: none;
-  opacity: 0.43;
+  opacity: 0.29;
   background-image: var(--opening-paper, none);
   background-size: 287px 287px;
   mix-blend-mode: multiply;
@@ -2246,18 +2255,15 @@ progress::-moz-progress-bar {
   height: 100svh;
 }
 
-.opening-preload-art {
+.opening-preload {
   position: absolute;
   z-index: 2;
-  visibility: var(--opening-poster-visibility, visible);
   top: 50%;
   left: 50%;
-  width: min(40vw, 430px);
-  height: min(58svh, 560px);
-  object-fit: contain;
   transform: translate(-50%, -50%);
-  filter: drop-shadow(0 0 18px rgba(207, 160, 91, 0.28));
-  animation: opening-preload-sway 2.5s ease-in-out infinite;
+  color: var(--paper-raised);
+  letter-spacing: 0.14em;
+  font-size: 0.9rem;
 }
 
 .opening-three-scene canvas {
@@ -2270,7 +2276,7 @@ progress::-moz-progress-bar {
   position: relative;
   z-index: 3;
   width: min(46vw, 730px);
-  margin-block-end: 4svh;
+  margin-block-end: 2svh;
   opacity: var(--opening-copy-opacity, 0);
   visibility: hidden;
   pointer-events: none;
@@ -2287,30 +2293,55 @@ progress::-moz-progress-bar {
 }
 
 .opening-copy h1 {
-  margin: 0;
-  max-width: 9.5ch;
+  width: max-content;
+  padding: 0.12em 0.13em 0.19em 0.02em;
+  margin: -0.12em -0.13em -0.19em -0.02em;
   color: var(--ink);
-  font: italic 700 clamp(3.6rem, 8.7vw, 11rem) / 0.82 var(--font-display);
-  letter-spacing: -0.085em;
+  font:
+    italic 800 clamp(3.6rem, 8.9vw, 11rem) / 0.89 "Bodoni Moda Opening",
+    var(--font-display);
+  font-optical-sizing: none;
+  font-variation-settings: "opsz" 24;
+  letter-spacing: -0.07em;
 }
 
+@supports (background-clip: text) {
+  .opening-copy h1 {
+    background-image:
+      linear-gradient(
+        157deg,
+        transparent 24%,
+        #e7ae615c 37%,
+        transparent 48%,
+        #d2a06136 58%,
+        transparent 72%
+      ),
+      linear-gradient(
+        177deg,
+        #632f16 3%,
+        #35200e 39%,
+        #4e3119 59%,
+        #36220f 75%,
+        #75471e 98%
+      );
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@media (forced-colors: active) {
+  .opening-copy h1 {
+    background: none;
+    color: CanvasText;
+  }
+}
 .opening-copy h1 span {
   display: block;
   white-space: nowrap;
 }
 
-.opening-copy > p {
-  margin: clamp(25px, 3vw, 42px) 0 0;
-  max-width: 28em;
-  color: var(--ink);
-  font-size: clamp(1rem, 1.45vw, 1.35rem);
-  font-weight: 550;
-  line-height: 1.7;
-  letter-spacing: 0.06em;
-}
-
 .opening-actions {
-  margin-top: clamp(28px, 4.2vw, 54px);
+  margin-top: clamp(32px, 5vw, 76px);
 }
 
 .opening-actions .primary-cta {
@@ -2388,24 +2419,8 @@ progress::-moz-progress-bar {
   object-position: center bottom;
 }
 
-.opening-page.is-leaving {
-  animation: opening-page-exit 650ms cubic-bezier(0.7, 0, 0.3, 1) forwards;
-}
-
-@keyframes opening-page-exit {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes opening-preload-sway {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) rotate(-8deg);
-  }
-  50% {
-    transform: translate(-50%, -50%) rotate(8deg);
-  }
+.draw-stage-anchor:focus {
+  outline: none;
 }
 
 @media (max-width: 900px) {
@@ -2433,14 +2448,7 @@ progress::-moz-progress-bar {
     margin-block-end: 0;
   }
   .opening-copy h1 {
-    max-width: 8.8ch;
-    font-size: clamp(3rem, 14.4vw, 5.4rem);
-    line-height: 0.82;
-  }
-  .opening-copy > p {
-    margin-top: 22px;
-    font-size: 1rem;
-    letter-spacing: 0.035em;
+    font-size: clamp(2.5rem, 14vw, 5.4rem);
   }
   .opening-actions {
     margin-top: 26px;
@@ -2459,10 +2467,6 @@ progress::-moz-progress-bar {
     height: 56svh;
     object-position: center top;
   }
-  .opening-preload-art {
-    width: min(70vw, 360px);
-    height: 54svh;
-  }
 }
 
 @media (max-width: 420px) {
@@ -2471,17 +2475,6 @@ progress::-moz-progress-bar {
   }
   .opening-copy h1 {
     font-size: clamp(2.75rem, 14vw, 4.2rem);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .opening-page.is-leaving {
-    animation: none;
-    opacity: 0;
-  }
-  .opening-preload-art {
-    /* Accessibility override must suppress the temporary preload animation. */
-    animation: none !important;
   }
 }
 

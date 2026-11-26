@@ -4,7 +4,7 @@ colors:
   paper: "#F4EEDB"
   paperRaised: "#FFF9E9"
   loadingPine: "#103C29"
-  homepageEgg: "#FFE2A4"
+  homepageEgg: "#FFDFA0"
   primary: "#B63439"
   olive: "#69724D"
   pine: "#344E37"
@@ -88,7 +88,7 @@ The runtime source of truth is `app/globals.css`. DOM components consume its var
 
 ## Typography
 
-English display copy uses the system serif stack with restrained letterpress texture. Traditional Chinese controls, names, status, errors, and blessings always use the complete CJK body stack. Slot numbers use the display stack at projector scale. No web font is loaded until licensing and Traditional Chinese coverage are approved.
+The English cover title uses the locally served Bodoni Moda Italic variable face under the SIL Open Font License, with dark bronze satin highlights. Traditional Chinese controls, names, status, errors, and blessings use the CJK body stack. Slot numbers use the system display serif at projector scale.
 
 ## Layout
 
@@ -110,7 +110,7 @@ Gift slots share six wrapping patterns and a single semantic state model: ready,
 
 Three.js is reserved for four high-value layers: the continuous candy-cane opening scene, ambient stage particles, the one active punch surface, and the reveal atmosphere. The 50 gift controls remain semantic DOM buttons. High, standard, and low effect levels adjust DPR and particle/fragment counts; reduced-motion and WebGL fallback paths keep every operation available without spatial animation.
 
-The cover layer owns one sequence: loading sway, candy flight, a feathered top-to-bottom colour wash, and a handoff from the candy to the gold garland. The tree, gifts, camera and text keep fixed positions. The tableau and copy appear through opacity. Timing values live in `lib/opening-experience.ts`. Reduced motion and unavailable WebGL resolve directly to the completed homepage composition.
+The cover layer owns one sequence: the loading candy and motes keep their launch positions, then draw together around a widening vortex during the feathered top-to-bottom colour wash. The tree unfolds from the star down to its trunk, then the presents spring from the root and settle. The fixed camera and upper-left warm key light keep the composition grounded. Timing lives in `lib/opening-experience.ts`. Reduced motion and unavailable WebGL resolve directly to the completed homepage composition.
 
 Admin status tags use text plus tone, never color alone. The participant and gift datasets are bounded to 50 rows per pool and remain semantic tables. The dashboard search is local and intentionally transient so participant names do not enter shareable URLs.
 

@@ -1,19 +1,23 @@
 export const OPENING_TIMELINE = {
   minimumLoadingSeconds: 0.9,
-  flight: { start: 0, end: 3.1 },
-  background: { start: 0.95, end: 4.5 },
-  dissolve: { start: 2.65, end: 3.55 },
-  garland: { start: 2.95, end: 5.6 },
-  tableau: { start: 3.55, end: 5.65 },
-  interface: { start: 4.6, end: 5.8 },
-  total: 5.8,
+  flight: { start: 0, end: 3.65 },
+  gather: { start: 0, end: 0.85 },
+  background: { start: 0.95, end: 4.7 },
+  dissolve: { start: 3.35, end: 4.15 },
+  garland: { start: 3.58, end: 6.3 },
+  tree: { start: 3.86, end: 6.16 },
+  gifts: { start: 6.12, end: 7.4 },
+  interface: { start: 6.3, end: 7.5 },
+  total: 7.5,
 } as const;
 
 export type OpeningFrame = {
   flight: number;
+  gather: number;
   dissolve: number;
   garland: number;
-  tableau: number;
+  tree: number;
+  gifts: number;
   interface: number;
   background: number;
   complete: boolean;
@@ -35,9 +39,11 @@ export function getOpeningFrame(elapsed: number): OpeningFrame {
     segmentProgress(elapsed, segment);
   return {
     flight: progress(OPENING_TIMELINE.flight),
+    gather: progress(OPENING_TIMELINE.gather),
     dissolve: progress(OPENING_TIMELINE.dissolve),
     garland: progress(OPENING_TIMELINE.garland),
-    tableau: progress(OPENING_TIMELINE.tableau),
+    tree: progress(OPENING_TIMELINE.tree),
+    gifts: progress(OPENING_TIMELINE.gifts),
     interface: progress(OPENING_TIMELINE.interface),
     background: progress(OPENING_TIMELINE.background),
     complete: elapsed >= OPENING_TIMELINE.total,

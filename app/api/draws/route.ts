@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { authorize, verifySameOrigin } from "@/lib/authorization";
-import type { GiftPool } from "@/lib/draw-engine";
+import { getSessionCookie } from "better-auth/cookies";
+import { getPrincipal, verifySameOrigin } from "@/lib/authorization";
 import { executePersistentDraw, getPublicState } from "@/lib/event-repository";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -11,6 +11,7 @@ const errorMap: Record<string, { status: number; message: string }> = {
   SLOT_ALREADY_OPENED: { status: 409, message: "這一格已經揭曉，請選其他格。" },
   IDEMPOTENCY_KEY_REUSED: { status: 409, message: "請求代碼與原操作不一致。" },
   NO_LEGAL_PROVIDER: { status: 409, message: "目前沒有可完成接棒的合法結果。" },
+  STALE_TURN: { status: 409, message: "接棒已更新，請重新選擇禮物。" },
 };
 
 export async function POST(request: NextRequest) {
@@ -19,24 +20,6 @@ export async function POST(request: NextRequest) {
       { message: "請求來源無法驗證。" },
       { status: 403 },
     );
-  const access = await authorize(request.headers, ["admin", "host"]);
-  if (!access.ok)
-    return NextResponse.json(
-      { message: access.message },
-      { status: access.status },
-    );
-  const limited = await enforceRateLimit("draw", access.principal.id);
-  if (!limited.success)
-    return NextResponse.json(
-      { message: limited.message },
-      {
-        status: limited.status,
-        headers: limited.retryAfter
-          ? { "Retry-After": String(limited.retryAfter) }
-          : undefined,
-      },
-    );
-
   const body: unknown = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json(
@@ -47,9 +30,16 @@ export async function POST(request: NextRequest) {
   const pool = "pool" in body ? body.pool : null;
   const slotNumber = "slotNumber" in body ? body.slotNumber : null;
   const idempotencyKey = "idempotencyKey" in body ? body.idempotencyKey : null;
+  const expectedVersion =
+    "expectedVersion" in body ? body.expectedVersion : null;
   if (
     (pool !== "good" && pool !== "bad") ||
     typeof slotNumber !== "number" ||
+    !Number.isInteger(slotNumber) ||
+    slotNumber < 1 ||
+    slotNumber > 50 ||
+    typeof expectedVersion !== "string" ||
+    !/^\d{1,19}$/.test(expectedVersion) ||
     typeof idempotencyKey !== "string" ||
     idempotencyKey.length < 16 ||
     idempotencyKey.length > 100
@@ -58,16 +48,33 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // The quota follows the shared event, even when visitors have no account or cookie.
+    const limited = await enforceRateLimit("draw", "public-event");
+    if (!limited.success) {
+      return NextResponse.json(
+        { message: limited.message },
+        {
+          status: limited.status,
+          headers: limited.retryAfter
+            ? { "Retry-After": String(limited.retryAfter) }
+            : undefined,
+        },
+      );
+    }
+    const principal = getSessionCookie(request)
+      ? await getPrincipal(request.headers)
+      : null;
     const result = await executePersistentDraw(
       {
-        pool: pool as GiftPool,
+        pool,
         slotNumber,
         idempotencyKey,
+        expectedVersion,
       },
-      access.principal,
+      principal ?? { id: "public-guest", name: "公開抽獎訪客" },
     );
     return NextResponse.json(
-      { result, state: await getPublicState(pool as GiftPool) },
+      { result, state: await getPublicState(pool) },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -84,7 +91,7 @@ export async function POST(request: NextRequest) {
             message: "目前無法確認驚喜，請保留此格並重試。",
           });
     return NextResponse.json(
-      { message: mapped.message },
+      { message: mapped.message, ...(mapped.status === 409 ? { code } : {}) },
       { status: mapped.status },
     );
   }

@@ -3,7 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { DrawResult, Participant } from "@/lib/demo-store";
 import type { GiftPool } from "@/lib/draw-engine";
 import {
@@ -63,6 +70,7 @@ type EventState = {
   openedCount: number;
   remaining: number;
   complete: boolean;
+  version: string;
   currentDrawer: Participant;
   opened: DrawResult[];
   canControl: boolean;
@@ -109,8 +117,7 @@ function usePaperSound(enabled: boolean) {
 }
 
 export function ChristmasExperience() {
-  const [coverVisible, setCoverVisible] = useState(true);
-  const [coverLeaving, setCoverLeaving] = useState(false);
+  const [stageVisible, setStageVisible] = useState(false);
   const [pool, setPool] = useState<GiftPool>("good");
   const [eventState, setEventState] = useState<EventState | null>(null);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("idle");
@@ -122,7 +129,7 @@ export function ChristmasExperience() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [pauseBusy, setPauseBusy] = useState(false);
   const requestKeyRef = useRef("");
-  const coverTimerRef = useRef<number | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const revealTimerRef = useRef<number | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
   const playSound = usePaperSound(soundEnabled);
@@ -137,9 +144,6 @@ export function ChristmasExperience() {
 
   useEffect(
     () => () => {
-      if (coverTimerRef.current !== null) {
-        window.clearTimeout(coverTimerRef.current);
-      }
       if (revealTimerRef.current !== null) {
         window.clearTimeout(revealTimerRef.current);
       }
@@ -182,14 +186,24 @@ export function ChristmasExperience() {
     }
   }, []);
 
-  function enterStage(skipAnimation = false) {
-    if (coverLeaving) return;
-    setCoverLeaving(true);
+  const scrollToStage = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.focus({ preventScroll: true });
+    stage.scrollIntoView({ behavior: reducedMotion ? "instant" : "smooth" });
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    if (stageVisible) scrollToStage();
+  }, [stageVisible, scrollToStage]);
+
+  function enterStage() {
+    if (stageVisible) {
+      scrollToStage();
+      return;
+    }
+    setStageVisible(true);
     void loadState(pool);
-    coverTimerRef.current = window.setTimeout(
-      () => setCoverVisible(false),
-      skipAnimation || reducedMotion ? 20 : 680,
-    );
   }
 
   function resetInteraction() {
@@ -224,6 +238,7 @@ export function ChristmasExperience() {
           pool,
           slotNumber,
           idempotencyKey: requestKeyRef.current,
+          expectedVersion: eventState.version,
         }),
       });
       const payload = (await response.json()) as {
@@ -231,6 +246,12 @@ export function ChristmasExperience() {
         result?: DrawResult;
         state?: Omit<EventState, "canControl">;
       };
+      if (response.status === 409) {
+        resetInteraction();
+        await loadState(pool);
+        setErrorMessage(payload.message ?? "接棒已更新，請重新選擇禮物。");
+        return;
+      }
       if (!response.ok || !payload.result || !payload.state) {
         throw new Error(payload.message ?? "目前無法確認驚喜，請重試。");
       }
@@ -248,8 +269,6 @@ export function ChristmasExperience() {
   function handleSlot(slotNumber: number, trigger: HTMLButtonElement) {
     if (
       !eventState ||
-      (!eventState.canControl &&
-        !eventState.opened.some((draw) => draw.slotNumber === slotNumber)) ||
       eventState.paused ||
       eventState.complete ||
       interaction.phase === "draw-pending" ||
@@ -338,22 +357,35 @@ export function ChristmasExperience() {
     );
   }
 
-  if (coverVisible) {
-    return (
+  const page = (stage: ReactNode) => (
+    <main>
       <Cover
-        leaving={coverLeaving}
         onEnter={enterStage}
+        stageVisible={stageVisible}
+        coveredByDialog={revealVisible}
         quality={quality}
         reducedMotion={reducedMotion}
         webglAvailable={webglAvailable}
         visualReady={visualReady}
       />
-    );
-  }
+      {stageVisible ? (
+        <div
+          ref={stageRef}
+          id="draw-stage"
+          className="draw-stage-anchor"
+          tabIndex={-1}
+        >
+          {stage}
+        </div>
+      ) : null}
+    </main>
+  );
+
+  if (!stageVisible) return page(null);
 
   if (loadStatus !== "ready" || !eventState) {
-    return (
-      <main className="loading-page">
+    return page(
+      <section className="loading-page" aria-label="抽獎舞台載入狀態">
         <div className="loading-gift" aria-hidden="true">
           <span />
         </div>
@@ -370,7 +402,7 @@ export function ChristmasExperience() {
             </button>
           </div>
         ) : null}
-      </main>
+      </section>,
     );
   }
 
@@ -378,8 +410,8 @@ export function ChristmasExperience() {
     eventState.opened.map((draw) => [draw.slotNumber, draw]),
   );
 
-  return (
-    <main className="stage-page">
+  return page(
+    <section className="stage-page" aria-label="交換禮物抽獎舞台">
       {webglAvailable ? (
         <StageAtmosphere quality={quality} reducedMotion={reducedMotion} />
       ) : null}
@@ -460,11 +492,7 @@ export function ChristmasExperience() {
                 {eventState.paused ? <PlayIcon /> : <PauseIcon />}
                 <span>{eventState.paused ? "繼續" : "暫停"}</span>
               </button>
-            ) : (
-              <Link className="pause-button" href="/login?next=/">
-                主持人登入
-              </Link>
-            )}
+            ) : null}
           </div>
         </header>
 
@@ -544,8 +572,7 @@ export function ChristmasExperience() {
                 className={`gift-slot pattern-${index % 6} ${slotState}`}
                 disabled={
                   !opened &&
-                  (!eventState.canControl ||
-                    eventState.paused ||
+                  (eventState.paused ||
                     eventState.complete ||
                     lockedByOther ||
                     committing ||
@@ -636,20 +663,22 @@ export function ChristmasExperience() {
           webglAvailable={webglAvailable}
         />
       ) : null}
-    </main>
+    </section>,
   );
 }
 
 function Cover({
-  leaving,
   onEnter,
+  stageVisible,
+  coveredByDialog,
   quality,
   reducedMotion,
   webglAvailable,
   visualReady,
 }: {
-  leaving: boolean;
-  onEnter: (skipAnimation?: boolean) => void;
+  onEnter: () => void;
+  stageVisible: boolean;
+  coveredByDialog: boolean;
   quality: QualityLevel;
   reducedMotion: boolean;
   webglAvailable: boolean;
@@ -659,10 +688,10 @@ function Cover({
     "loading" | "playing" | "ready"
   >("loading");
   const [sceneReady, setSceneReady] = useState(false);
+  const [sceneInView, setSceneInView] = useState(true);
   const pageRef = useRef<HTMLElement>(null);
   const enterButtonRef = useRef<HTMLButtonElement>(null);
   const focusAfterSkipRef = useRef(false);
-  const mountedAtRef = useRef(0);
   const sceneStartedRef = useRef(false);
   const openingTimerRef = useRef<number | null>(null);
   const bypassOpening = visualReady && (reducedMotion || !webglAvailable);
@@ -676,7 +705,13 @@ function Cover({
   }, [showInterface]);
 
   useEffect(() => {
-    mountedAtRef.current = performance.now();
+    const page = pageRef.current;
+    if (!page) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setSceneInView(entry.isIntersecting);
+    });
+    observer.observe(page);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(
@@ -691,17 +726,12 @@ function Cover({
   const handleSceneReady = useCallback(
     (grain: string) => {
       pageRef.current?.style.setProperty("--opening-paper", `url("${grain}")`);
-      pageRef.current?.style.setProperty(
-        "--opening-poster-visibility",
-        "hidden",
-      );
       setSceneReady(true);
       if (sceneStartedRef.current || reducedMotion) return;
       sceneStartedRef.current = true;
-      const elapsed = performance.now() - mountedAtRef.current;
       openingTimerRef.current = window.setTimeout(
         () => setOpeningMode("playing"),
-        Math.max(0, OPENING_TIMELINE.minimumLoadingSeconds * 1000 - elapsed),
+        OPENING_TIMELINE.minimumLoadingSeconds * 1000,
       );
     },
     [reducedMotion],
@@ -729,9 +759,11 @@ function Cover({
   }, []);
 
   return (
-    <main
+    <header
       ref={pageRef}
-      className={`opening-page is-${currentOpeningMode} ${leaving ? "is-leaving" : ""}`}
+      className={`opening-page is-${currentOpeningMode}`}
+      data-scene-ready={sceneReady}
+      inert={coveredByDialog ? true : undefined}
     >
       <div className="opening-background" aria-hidden="true" />
       <div className="opening-grain" aria-hidden="true" />
@@ -764,16 +796,16 @@ function Cover({
           Christmas
           <span>Mystery Gift</span>
         </h1>
-        <p>拆開禮物之前，先拆開今天的驚喜。</p>
         <div className="opening-actions">
           <button
             ref={enterButtonRef}
             className="primary-cta"
             type="button"
-            disabled={leaving || currentOpeningMode !== "ready"}
-            onClick={() => onEnter(false)}
+            disabled={currentOpeningMode !== "ready"}
+            aria-controls={stageVisible ? "draw-stage" : undefined}
+            onClick={onEnter}
           >
-            開啟聖誕驚喜
+            前往抽獎
           </button>
         </div>
       </section>
@@ -790,21 +822,16 @@ function Cover({
         />
       ) : null}
       {!sceneReady && currentOpeningMode === "loading" ? (
-        <Image
-          className="opening-preload-art"
-          src="/assets/opening-candy-preload.png"
-          alt=""
-          width={1536}
-          height={1536}
-          priority
-          aria-hidden="true"
-        />
+        <span className="opening-preload" aria-hidden="true">
+          載入聖誕場景中
+        </span>
       ) : null}
       {visualReady && webglAvailable ? (
         <OpeningThreeScene
           mode={currentOpeningMode}
           quality={quality}
           reducedMotion={reducedMotion}
+          inView={sceneInView}
           onSceneReady={handleSceneReady}
           onProgress={updateOpeningProgress}
           onComplete={finishOpening}
@@ -818,7 +845,7 @@ function Cover({
             ? "聖誕場景生成中"
             : "聖誕場景已準備完成"}
       </p>
-    </main>
+    </header>
   );
 }
 

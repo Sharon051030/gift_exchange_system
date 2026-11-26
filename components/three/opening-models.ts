@@ -255,8 +255,6 @@ export function createChristmasModel(
   shadow: THREE.Texture,
 ) {
   const group = new THREE.Group();
-  const materials: THREE.MeshStandardMaterial[] = [];
-  const shadows: { material: THREE.MeshBasicMaterial; opacity: number }[] = [];
   function surface(
     color: string | THREE.Color,
     roughness: number,
@@ -273,12 +271,11 @@ export function createChristmasModel(
       vertexColors: true,
       flatShading: true,
     });
-    materials.push(mat);
     return mat;
   }
   const pine = new THREE.Color(palette.pine).lerp(
     new THREE.Color(palette.olive),
-    0.54,
+    0.68,
   );
   const foliage = surface(pine, 0.91, 0.055);
   const wood = surface("#87572d", 0.94, 0.08);
@@ -304,7 +301,6 @@ export function createChristmasModel(
       opacity,
       depthWrite: false,
     });
-    shadows.push({ material, opacity });
     const plane = mesh(new THREE.PlaneGeometry(width, depth), material, [
       x,
       -2.46,
@@ -312,16 +308,20 @@ export function createChristmasModel(
     ]);
     plane.rotation.x = -Math.PI / 2;
     group.add(plane);
+    return { material, opacity };
   }
 
-  contact(0.4, -0.25, 6.4, 4, 0.82);
-  group.add(
-    mesh(
-      facets(new THREE.CylinderGeometry(0.3, 0.43, 1.24, 8, 3), 0.25, 73),
-      wood,
-      [0, -1.83, 0],
-    ),
+  const ground = contact(0.63, -0.34, 6.8, 3.7, 0.64);
+  const trunk = mesh(
+    facets(
+      new THREE.CylinderGeometry(0.3, 0.43, 1.24, 8, 3),
+      0.25,
+      73,
+    ).translate(0, -0.62, 0),
+    wood,
+    [0, -1.21, 0],
   );
+  group.add(trunk);
   const tiers = [
     [1.84, 1.92, -1.44],
     [1.52, 1.66, -0.63],
@@ -329,16 +329,24 @@ export function createChristmasModel(
     [0.82, 1.16, 0.98],
     [0.48, 0.92, 1.68],
   ];
-  tiers.forEach(([radius, height, y], index) => {
-    const tier = mesh(
-      foliageGeometry(radius, height, 89 + index * 387),
-      foliage,
-      [0, y, 0],
-    );
-    tier.rotation.y = index * 0.33 + 0.17;
-    group.add(tier);
-  });
-  group.add(mesh(starGeometry(0.43), gold, [0, 2.76, 0.07]));
+  const branches = tiers
+    .map(([radius, height, y], index) => {
+      const tier = mesh(
+        foliageGeometry(radius, height, 89 + index * 387).translate(
+          0,
+          -height,
+          0,
+        ),
+        foliage,
+        [0, y + height, 0],
+      );
+      tier.rotation.y = index * 0.33 + 0.17;
+      group.add(tier);
+      return tier;
+    })
+    .reverse();
+  const star = mesh(starGeometry(0.43), gold, [0, 2.76, 0.07]);
+  group.add(star);
 
   const ornaments: {
     position: Point;
@@ -363,27 +371,34 @@ export function createChristmasModel(
       size: 0.14,
     },
   ];
-  ornaments.forEach(({ position: [x, y, z], type, material, size }, i) => {
-    const shape =
-      type === "ball"
-        ? new THREE.IcosahedronGeometry(size, 1)
-        : new THREE.OctahedronGeometry(size);
-    const ornament = mesh(facets(shape, 0.24, 175 + i), material, [x, y, z]);
-    if (type === "drop") ornament.scale.y = 1.72;
-    group.add(
-      ornament,
-      mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.24, 5), gold, [
-        x,
-        y + size * (type === "ball" ? 1 : 1.7) + 0.12,
-        z,
-      ]),
-      mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.062, 6), gold, [
-        x,
-        y + size * (type === "ball" ? 1 : 1.7),
-        z,
-      ]),
-    );
-  });
+  const baubles = ornaments.map(
+    ({ position: [x, y, z], type, material, size }, i) => {
+      const shape =
+        type === "ball"
+          ? new THREE.IcosahedronGeometry(size, 1)
+          : new THREE.OctahedronGeometry(size);
+      const ornament = mesh(facets(shape, 0.24, 175 + i), material, [x, y, z]);
+      if (type === "drop") ornament.scale.y = 1.72;
+      const decoration = new THREE.Group();
+      decoration.position.set(x, y, z);
+      ornament.position.set(0, 0, 0);
+      decoration.add(
+        ornament,
+        mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.24, 5), gold, [
+          0,
+          size * (type === "ball" ? 1 : 1.7) + 0.12,
+          0,
+        ]),
+        mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.062, 6), gold, [
+          0,
+          size * (type === "ball" ? 1 : 1.7),
+          0,
+        ]),
+      );
+      group.add(decoration);
+      return decoration;
+    },
+  );
 
   const packages = [
     {
@@ -437,13 +452,16 @@ export function createChristmasModel(
       rotation: -0.08,
     },
   ];
-  packages.forEach(({ x, z, w, h, d, color, ribbon, rotation }) => {
-    const box = gift(w, h, d, color, ribbon);
-    box.position.set(x, -2.44, z);
-    box.rotation.y = rotation;
-    group.add(box);
-    contact(x + 0.16, z - 0.08, w * 2.3, d * 2, 0.7);
-  });
+  const presents = packages.map(
+    ({ x, z, w, h, d, color, ribbon, rotation }) => {
+      const box = gift(w, h, d, color, ribbon);
+      box.position.set(x, -2.44, z);
+      box.rotation.y = rotation;
+      group.add(box);
+      const contactShadow = contact(x + 0.22, z - 0.08, w * 2.4, d * 2, 0.65);
+      return { box, x, z, rotation, contactShadow };
+    },
+  );
   group.traverse((part) => {
     if (
       part instanceof THREE.Mesh &&
@@ -454,17 +472,17 @@ export function createChristmasModel(
     }
   });
 
-  // A depth-only copy keeps the outer silhouette intact during the opacity fade.
-  const depthMaterial = new THREE.MeshBasicMaterial({
-    colorWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const depth = group.clone(true);
-  depth.traverse((part) => {
-    if (!(part instanceof THREE.Mesh)) return;
-    part.visible = part.material instanceof THREE.MeshStandardMaterial;
-    part.material = depthMaterial;
-  });
-  depth.visible = false;
-  return { group, materials, shadows, depth, depthMaterial };
+  const shadowPlane = mesh(
+    new THREE.PlaneGeometry(10, 9),
+    new THREE.ShadowMaterial({
+      opacity: 0.16,
+      color: "#8d541f",
+      depthWrite: false,
+    }),
+    [0, -2.47, 0],
+  );
+  shadowPlane.rotation.x = -Math.PI / 2;
+  shadowPlane.receiveShadow = true;
+  group.add(shadowPlane);
+  return { group, ground, trunk, branches, star, baubles, presents };
 }

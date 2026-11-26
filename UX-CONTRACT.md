@@ -8,24 +8,24 @@
 | `/admin` | 主持人與管理員 | 活動健康、名單、禮物、接棒、例外與稽核 |
 | `/login` | 主持人與管理員 | 管理帳號登入並返回原先路徑             |
 
-伺服器以資料庫 Session 驗證 `admin / host / viewer`。投影端可公開讀取必要舞台狀態，但只有 admin/host 能抽獎或暫停；後台資料不提供給 viewer 或未登入訪客，完整匯出僅限 admin。
+訪客可直接進入禮物牆、讀取舞台狀態並抽獎。伺服器以資料庫 Session 驗證管理操作，只有 admin/host 能暫停活動或進入主持控制台，完整匯出與重置僅限 admin。抽獎共用活動配額，接棒更新後重新載入已揭曉結果及當前接棒者。
 
 ## Canonical UI Map
 
-| Capability         | Canonical owner               | Decision                                          |
-| ------------------ | ----------------------------- | ------------------------------------------------- |
-| Scrollbar          | `app/globals.css`             | 全站 token 化，表格只控制自己的水平 overflow      |
-| Status feedback    | 頁面內 `admin-alert`          | 成功用 status，錯誤用 alert；關鍵訊息不只放 toast |
-| Dataset navigation | 原生 semantic table           | 參加者與每池禮物皆有 50 筆上限，完整渲染          |
-| Search             | `AdminDashboard` 的參加者搜尋 | 本地即時篩選；有清除鈕；姓名不寫入 URL            |
-| Pool switch        | `PoolToggle`                  | 好／壞禮物使用同一按鈕組與 `aria-pressed`         |
-| Pause and resume   | `/api/event/pause`            | 等待伺服器確認後更新；失敗保留原狀態              |
-| Draw animation     | `interactionReducer`          | 視覺狀態不可決定結果；成功回應後才能破裂與揭曉    |
-| Effect quality     | `useVisualPreferences`        | 高／標準／省電三級；遵守 reduced motion           |
-| WebGL fallback     | DOM/CSS gift controls         | WebGL 不可用時保留完整抽獎、裂痕與揭曉流程        |
-| Opening sequence   | `lib/opening-experience.ts`   | 固定視角；漸層、實景淡入與光點共用時間軸          |
-| Authentication     | Better Auth + `LoginForm`     | 泛用錯誤、不揭露帳號是否存在、支援密碼管理器      |
-| Authorization      | `lib/authorization.ts`        | 頁面與 API 皆做伺服器端角色驗證                   |
+| Capability         | Canonical owner               | Decision                                               |
+| ------------------ | ----------------------------- | ------------------------------------------------------ |
+| Scrollbar          | `app/globals.css`             | 全站 token 化，表格只控制自己的水平 overflow           |
+| Status feedback    | 頁面內 `admin-alert`          | 成功用 status，錯誤用 alert；關鍵訊息不只放 toast      |
+| Dataset navigation | 原生 semantic table           | 參加者與每池禮物皆有 50 筆上限，完整渲染               |
+| Search             | `AdminDashboard` 的參加者搜尋 | 本地即時篩選；有清除鈕；姓名不寫入 URL                 |
+| Pool switch        | `PoolToggle`                  | 好／壞禮物使用同一按鈕組與 `aria-pressed`              |
+| Pause and resume   | `/api/event/pause`            | 等待伺服器確認後更新；失敗保留原狀態                   |
+| Draw animation     | `interactionReducer`          | 視覺狀態不可決定結果；成功回應後才能破裂與揭曉         |
+| Effect quality     | `useVisualPreferences`        | 高／標準／省電三級；遵守 reduced motion                |
+| WebGL fallback     | DOM/CSS gift controls         | WebGL 不可用時保留完整抽獎、裂痕與揭曉流程             |
+| Opening sequence   | `lib/opening-experience.ts`   | 固定視角；同一批光點成束，樹冠分層展開，禮物從樹根彈出 |
+| Authentication     | Better Auth + `LoginForm`     | 泛用錯誤、不揭露帳號是否存在、支援密碼管理器           |
+| Authorization      | `lib/authorization.ts`        | 頁面與 API 皆做伺服器端角色驗證                        |
 
 ## Flow Ledger
 
@@ -52,4 +52,5 @@
 - 3D Canvas 一律為裝飾層並從可及性樹隱藏；鍵盤與觸控操作由原生按鈕承擔。
 - 系統 reduced-motion 啟用時跳過空間轉場，但不跳過狀態回饋或成功確認。
 - 開場載入、轉場與首頁共用同一 DOM，不重新整理、不插入黑畫面；「略過動畫」必須立即抵達可操作完成態。
+- 「前往抽獎」在同一頁面載入禮物牆並捲動至舞台，減少動態模式則立即移動。
 - 完整活動重置僅向 admin 顯示；對話框以活動名稱做輸入確認、初始焦點停在保留活動，Escape 關閉並恢復觸發按鈕焦點。

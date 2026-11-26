@@ -4,18 +4,18 @@
 
 ## 本次已修補
 
-| 項目                 | 狀態   | 實作證據                                                                        | 驗收重點                                            |
-| -------------------- | ------ | ------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 管理員登入與 Session | 已修補 | Better Auth email/password、PostgreSQL Session；公開註冊預設停用                | 建立管理員後，無 Cookie 存取 `/admin` 會回登入頁    |
-| 角色權限             | 已修補 | `admin / host / viewer`；頁面與每支敏感 API 都重新查 Session/RBAC               | host 不可匯出；viewer 直接進 `/admin` 會到 403      |
-| 匿名抽獎／暫停       | 已修補 | `/api/draws`、`/api/event/pause` 僅允許 admin/host，並檢查同源                  | 未登入 POST 應回 401；跨來源應回 403                |
-| 後台資料外洩         | 已修補 | overview 僅 admin/host；export 僅 admin；公開狀態只含目前與已揭曉資料           | 未登入 overview/export 不得回傳名單                 |
-| 記憶體資料遺失       | 已修補 | PostgreSQL `events / participants / pool_states / draws / audit_logs`           | 重啟與多 instance 後結果一致                        |
-| 多節點重複抽獎       | 已修補 | 交易、`FOR UPDATE`、格子／順序／提供者／抽獎者／idempotency 唯一約束            | 同格並發只允許一筆成功                              |
-| 單機限流可繞過       | 已修補 | Upstash Redis 分散式 sliding window；未設定時敏感操作回 503                     | 多 instance 共用計數，429 帶 Retry-After            |
-| 無稽核軌跡           | 已修補 | 抽獎與暫停操作寫入只追加 audit log，記錄操作者                                  | 後台可追蹤 actor/action/target/time                 |
-| 活動重置遭誤觸或越權 | 已修補 | 僅 admin、同源驗證、Redis 限流、輸入活動名稱、資料庫 transaction；保留 AuditLog | host／viewer 直接呼叫應回 403；失敗不得留下部分重置 |
-| 供應鏈已知漏洞       | 通過   | `package-lock.json` 固定版本；本次執行 `npm audit`                              | 公開前仍應在 CI 持續掃描                            |
+| 項目                 | 狀態       | 實作證據                                                                                  | 驗收重點                                            |
+| -------------------- | ---------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 管理員登入與 Session | 已修補     | Better Auth email/password、PostgreSQL Session；公開註冊預設停用                          | 建立管理員後，無 Cookie 存取 `/admin` 會回登入頁    |
+| 角色權限             | 已修補     | `admin / host / viewer`；頁面與每支敏感 API 都重新查 Session/RBAC                         | host 不可匯出；viewer 直接進 `/admin` 會到 403      |
+| 公開抽獎／主持暫停   | 依產品要求 | `/api/draws` 接受訪客以共同配額抽獎，並驗證接棒版本；`/api/event/pause` 仍僅限 admin/host | 跨來源回 403；舊接棒回 409；訪客無法暫停活動        |
+| 後台資料外洩         | 已修補     | overview 僅 admin/host；export 僅 admin；公開狀態只含目前與已揭曉資料                     | 未登入 overview/export 不得回傳名單                 |
+| 記憶體資料遺失       | 已修補     | PostgreSQL `events / participants / pool_states / draws / audit_logs`                     | 重啟與多 instance 後結果一致                        |
+| 多節點重複抽獎       | 已修補     | 交易、`FOR UPDATE`、格子／順序／提供者／抽獎者／idempotency 唯一約束                      | 同格並發只允許一筆成功                              |
+| 單機限流可繞過       | 已修補     | Upstash Redis 分散式 sliding window；未設定時敏感操作回 503                               | 多 instance 共用計數，429 帶 Retry-After            |
+| 無稽核軌跡           | 已修補     | 抽獎與暫停操作寫入只追加 audit log，記錄操作者                                            | 後台可追蹤 actor/action/target/time                 |
+| 活動重置遭誤觸或越權 | 已修補     | 僅 admin、同源驗證、Redis 限流、輸入活動名稱、資料庫 transaction；保留 AuditLog           | host／viewer 直接呼叫應回 403；失敗不得留下部分重置 |
+| 供應鏈已知漏洞       | 通過       | `package-lock.json` 固定版本；本次執行 `npm audit`                                        | 公開前仍應在 CI 持續掃描                            |
 
 ## 公開前仍需處理
 
