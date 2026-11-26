@@ -1,9 +1,22 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { getOpeningFrame, OPENING_TIMELINE } from "@/lib/opening-experience";
+import {
+  candyMap,
+  createContactTexture,
+  createGlowTexture,
+  paperCanvas,
+  readOpeningPalette,
+  seededRandom,
+} from "./opening-materials";
+import {
+  candyGeometry,
+  createChristmasModel,
+  starGeometry,
+} from "./opening-models";
 import type { QualityLevel } from "./visual-preferences";
 
 export type OpeningMode = "loading" | "playing" | "ready";
@@ -12,662 +25,447 @@ type OpeningSceneProps = {
   mode: OpeningMode;
   quality: QualityLevel;
   reducedMotion: boolean;
-  onSceneReady: () => void;
-  onBackgroundStart: () => void;
-  onInterfaceReveal: () => void;
+  onSceneReady: (grain: string) => void;
+  onProgress: (background: number, copy: number) => void;
   onComplete: () => void;
 };
 
+const FRAME_HEIGHT = 7;
 const QUALITY = {
-  high: { dpr: 1.6, motes: 110 },
-  standard: { dpr: 1.25, motes: 74 },
-  low: { dpr: 1, motes: 42 },
+  high: { dpr: 1.65, motes: 182 },
+  standard: { dpr: 1.35, motes: 130 },
+  low: { dpr: 1, motes: 76 },
 } as const;
 
-const palette = {
-  pine: "#344e37",
-  berry: "#b63439",
-  gold: "#cfa05b",
-  ivory: "#fff9e9",
-  ink: "#302d24",
-};
+const smooth = (t: number) => t * t * (3 - 2 * t);
+const fade = (t: number) => smooth(THREE.MathUtils.clamp(t, 0, 1));
 
-function easeInOutCubic(value: number) {
-  return value < 0.5
-    ? 4 * value * value * value
-    : 1 - Math.pow(-2 * value + 2, 3) / 2;
+function fitCamera(camera: THREE.Camera, height: number) {
+  if (camera instanceof THREE.OrthographicCamera) {
+    camera.zoom = height / FRAME_HEIGHT;
+    camera.updateProjectionMatrix();
+  }
 }
 
-function easeOutCubic(value: number) {
-  return 1 - Math.pow(1 - value, 3);
+function setOpacity(material: THREE.Material, opacity: number) {
+  material.opacity = opacity;
 }
 
-function useCandyTexture() {
-  const texture = useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 512;
-    const context = canvas.getContext("2d")!;
-    context.fillStyle = palette.ivory;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = palette.berry;
-    for (let y = -128; y < 640; y += 112) {
-      context.beginPath();
-      context.moveTo(-32, y + 62);
-      context.lineTo(160, y - 34);
-      context.lineTo(160, y + 24);
-      context.lineTo(-32, y + 120);
-      context.closePath();
-      context.fill();
+function updatePoints(points: THREE.BufferAttribute) {
+  points.needsUpdate = true;
+}
+
+function setTableauOpacity(
+  model: ReturnType<typeof createChristmasModel>,
+  reveal: number,
+) {
+  model.group.visible = reveal > 0;
+  const fading = reveal > 0 && reveal < 1;
+  model.depth.visible = fading;
+  for (const material of model.materials) {
+    if (material.transparent !== fading) {
+      material.transparent = fading;
+      material.depthWrite = !fading;
+      material.needsUpdate = true;
     }
-    context.globalAlpha = 0.13;
-    context.fillStyle = palette.ink;
-    for (let y = 8; y < 512; y += 21) {
-      for (let x = 6; x < 128; x += 19) context.fillRect(x, y, 1, 1);
-    }
-    const next = new THREE.CanvasTexture(canvas);
-    next.colorSpace = THREE.SRGBColorSpace;
-    next.wrapS = THREE.RepeatWrapping;
-    next.wrapT = THREE.RepeatWrapping;
-    next.repeat.set(1.1, 2.4);
-    return next;
-  }, []);
-  useEffect(() => () => texture.dispose(), [texture]);
-  return texture;
+    material.opacity = reveal;
+  }
+  for (const { material, opacity } of model.shadows)
+    material.opacity = opacity * reveal;
 }
 
-function createSeededPositions(count: number, seed = 41) {
-  const positions = new Float32Array(count * 3);
-  let value = seed;
-  const random = () => {
-    value = (value * 16807) % 2147483647;
-    return (value - 1) / 2147483646;
+function garlandPoint(t: number, point: THREE.Vector3) {
+  const angle = t * Math.PI * 7.3 + 1.9;
+  const radius = 0.43 + t * 1.8;
+  return point.set(
+    Math.cos(angle) * radius,
+    2.33 - t * 3.97,
+    Math.sin(angle) * radius,
+  );
+}
+
+function createOpeningAssets(count: number) {
+  const palette = readOpeningPalette();
+  const grain = paperCanvas();
+  const paper = new THREE.CanvasTexture(grain);
+  paper.wrapS = paper.wrapT = THREE.RepeatWrapping;
+  paper.colorSpace = THREE.SRGBColorSpace;
+  paper.anisotropy = 4;
+  const candyTexture = candyMap(grain, "#b63d24");
+  const glow = createGlowTexture();
+  const contact = createContactTexture();
+  const model = createChristmasModel(palette, paper, contact);
+  const candyMaterial = new THREE.MeshStandardMaterial({
+    map: candyTexture,
+    bumpMap: candyTexture,
+    bumpScale: 0.025,
+    flatShading: true,
+    vertexColors: true,
+    roughness: 0.75,
+    alphaHash: true,
+  });
+  candyMaterial.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+       float edge = pow(1.0 - max(dot(normalize(vViewPosition), normal), 0.0), 2.5);
+       float leftLight = smoothstep(0.05, 0.85, dot(normal, normalize(vec3(-0.9, 0.38, 0.12))));
+       totalEmissiveRadiance += vec3(1.0, 0.62, 0.19) * edge * leftLight * 2.1;`,
+    );
   };
-  for (let index = 0; index < count; index += 1) {
-    positions[index * 3] = (random() - 0.5) * 5.4;
-    positions[index * 3 + 1] = (random() - 0.5) * 4.1;
-    positions[index * 3 + 2] = (random() - 0.5) * 2.4;
-  }
-  return positions;
-}
-
-function createStarShape() {
-  const shape = new THREE.Shape();
-  for (let point = 0; point < 10; point += 1) {
-    const radius = point % 2 === 0 ? 0.19 : 0.078;
-    const angle = -Math.PI / 2 + (point * Math.PI) / 5;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    if (point === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
-  }
-  shape.closePath();
-  return shape;
-}
-
-function CandyCane({
-  groupRef,
-  materialRef,
-  visible,
-}: {
-  groupRef: React.RefObject<THREE.Group | null>;
-  materialRef: React.RefObject<THREE.MeshStandardMaterial | null>;
-  visible: boolean;
-}) {
-  const texture = useCandyTexture();
-  const curve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0, -1.45, 0),
-        new THREE.Vector3(0, -0.55, 0),
-        new THREE.Vector3(0, 0.45, 0),
-        new THREE.Vector3(0.04, 1.05, 0),
-        new THREE.Vector3(0.36, 1.42, 0),
-        new THREE.Vector3(0.83, 1.37, 0),
-        new THREE.Vector3(1.02, 1.02, 0),
-        new THREE.Vector3(0.84, 0.72, 0),
-        new THREE.Vector3(0.56, 0.68, 0),
-      ]),
-    [],
+  const starMaterial = new THREE.MeshStandardMaterial({
+    color: palette.gold,
+    roughness: 0.54,
+    metalness: 0.13,
+    bumpMap: paper,
+    bumpScale: 0.025,
+    vertexColors: true,
+    flatShading: true,
+    alphaHash: true,
+  });
+  const candy = candyGeometry();
+  const star = starGeometry(1);
+  const ribbon = new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3(
+      Array.from({ length: 112 }, (_, i) =>
+        garlandPoint(i / 111, new THREE.Vector3()),
+      ),
+    ),
+    146,
+    0.011,
+    4,
+    false,
   );
-  return (
-    <group ref={groupRef} scale={0.72} visible={visible}>
-      <mesh castShadow>
-        <tubeGeometry args={[curve, 72, 0.2, 9, false]} />
-        <meshStandardMaterial
-          ref={materialRef}
-          map={texture}
-          roughness={0.76}
-          metalness={0}
-          transparent
-        />
-      </mesh>
-    </group>
-  );
+  const random = seededRandom(491);
+  const sparkSeeds = Array.from({ length: count }, (_, index) => ({
+    phase: random(),
+    x: random() * 2 - 1,
+    y: random() * 2 - 1,
+    depth: random(),
+    spread: index % 3 ? 0.11 + random() * 0.22 : 0.25 + random() * 0.61,
+  }));
+  return {
+    palette,
+    grain: grain.toDataURL("image/png"),
+    paper,
+    candyTexture,
+    glow,
+    contact,
+    model,
+    candy,
+    candyMaterial,
+    star,
+    starMaterial,
+    ribbon,
+    sparkSeeds,
+  };
 }
 
-function GiftBox({
-  position,
-  scale,
-  color,
-  rotation = 0,
-}: {
-  position: [number, number, number];
-  scale: [number, number, number];
-  color: string;
-  rotation?: number;
-}) {
-  return (
-    <group position={position} rotation={[0, rotation, 0]} scale={scale}>
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={color} roughness={0.82} />
-      </mesh>
-      <mesh position={[0, 0, 0.505]}>
-        <boxGeometry args={[0.16, 1.01, 0.02]} />
-        <meshStandardMaterial color={palette.gold} roughness={0.68} />
-      </mesh>
-      <mesh position={[0, 0, 0.52]}>
-        <boxGeometry args={[1.01, 0.15, 0.02]} />
-        <meshStandardMaterial color={palette.gold} roughness={0.68} />
-      </mesh>
-      <group position={[0, 0.61, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <mesh position={[-0.19, 0, 0]} scale={[0.7, 0.52, 0.46]}>
-          <torusGeometry args={[0.23, 0.055, 7, 22, Math.PI * 1.65]} />
-          <meshStandardMaterial color={palette.gold} roughness={0.66} />
-        </mesh>
-        <mesh
-          position={[0.19, 0, 0]}
-          rotation={[0, Math.PI, 0]}
-          scale={[0.7, 0.52, 0.46]}
-        >
-          <torusGeometry args={[0.23, 0.055, 7, 22, Math.PI * 1.65]} />
-          <meshStandardMaterial color={palette.gold} roughness={0.66} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
+const STARS = [
+  [-0.39, 0.6, 0.2],
+  [-0.6, 0.27, 0.082],
+  [-0.38, -0.1, 0.106],
+  [-0.4, -0.61, 0.078],
+  [0.38, 0.58, 0.095],
+  [0.56, 0.13, 0.185],
+  [0.3, -0.42, 0.17],
+];
 
-function TreeAndGifts({
-  treeRef,
-  giftRef,
-  isMobile,
-  ready,
-}: {
-  treeRef: React.RefObject<THREE.Group | null>;
-  giftRef: React.RefObject<THREE.Group | null>;
-  isMobile: boolean;
-  ready: boolean;
-}) {
-  const star = useMemo(() => createStarShape(), []);
-  const treePosition: [number, number, number] = isMobile
-    ? [0, 0.92, 0]
-    : [2.35, -0.48, 0];
-  const treeScale = isMobile ? 0.56 : 1;
-  return (
-    <group position={treePosition} scale={treeScale}>
-      <group ref={treeRef} visible={ready}>
-        <mesh
-          position={[0, 2.94, 0.08]}
-          userData={{ revealAt: 0, revealSpan: 0.16 }}
-        >
-          <shapeGeometry args={[star]} />
-          <meshStandardMaterial
-            color={palette.gold}
-            roughness={0.52}
-            metalness={0.08}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-        <mesh
-          position={[0, 2.28, 0]}
-          userData={{ revealAt: 0.08, revealSpan: 0.24 }}
-          castShadow
-        >
-          <coneGeometry args={[0.78, 1.25, 7]} />
-          <meshStandardMaterial color="#496342" roughness={0.88} />
-        </mesh>
-        <mesh
-          position={[0, 1.42, 0]}
-          userData={{ revealAt: 0.25, revealSpan: 0.28 }}
-          castShadow
-        >
-          <coneGeometry args={[1.18, 1.65, 7]} />
-          <meshStandardMaterial color={palette.pine} roughness={0.9} />
-        </mesh>
-        <mesh
-          position={[0, 0.36, 0]}
-          userData={{ revealAt: 0.46, revealSpan: 0.3 }}
-          castShadow
-        >
-          <coneGeometry args={[1.65, 2.15, 7]} />
-          <meshStandardMaterial color="#2f4933" roughness={0.9} />
-        </mesh>
-        <mesh
-          position={[0, -1.03, 0]}
-          userData={{ revealAt: 0.72, revealSpan: 0.22 }}
-          castShadow
-        >
-          <cylinderGeometry args={[0.28, 0.38, 1.1, 7]} />
-          <meshStandardMaterial color="#68432e" roughness={0.96} />
-        </mesh>
-        {[
-          [-0.42, 1.76, 0.55, palette.berry],
-          [0.58, 1.02, 0.72, palette.gold],
-          [-0.68, 0.32, 0.92, palette.ivory],
-          [0.7, -0.06, 1.02, palette.berry],
-        ].map(([x, y, z, color], index) => (
-          <mesh
-            key={index}
-            position={[x as number, y as number, z as number]}
-            userData={{ revealAt: 0.72 + index * 0.045, revealSpan: 0.12 }}
-          >
-            <icosahedronGeometry args={[0.16, 0]} />
-            <meshStandardMaterial color={color as string} roughness={0.68} />
-          </mesh>
-        ))}
-      </group>
-
-      <group ref={giftRef} visible={ready} position={[0, -1.5, 0.58]}>
-        <group userData={{ revealAt: 0, revealSpan: 0.28 }}>
-          <GiftBox
-            position={[-1.08, 0.12, 0]}
-            scale={[0.78, 0.78, 0.78]}
-            color={palette.berry}
-            rotation={-0.18}
-          />
-        </group>
-        <group userData={{ revealAt: 0.16, revealSpan: 0.3 }}>
-          <GiftBox
-            position={[-0.35, -0.1, 0.42]}
-            scale={[0.62, 0.62, 0.62]}
-            color={palette.ivory}
-            rotation={0.12}
-          />
-        </group>
-        <group userData={{ revealAt: 0.3, revealSpan: 0.3 }}>
-          <GiftBox
-            position={[0.45, -0.18, 0.56]}
-            scale={[0.52, 0.52, 0.52]}
-            color={palette.pine}
-            rotation={-0.08}
-          />
-        </group>
-        <group userData={{ revealAt: 0.45, revealSpan: 0.32 }}>
-          <GiftBox
-            position={[1.08, 0.02, 0.04]}
-            scale={[0.72, 0.72, 0.72]}
-            color={palette.berry}
-            rotation={0.2}
-          />
-        </group>
-        <group userData={{ revealAt: 0.58, revealSpan: 0.28 }}>
-          <GiftBox
-            position={[-0.82, -0.42, 0.78]}
-            scale={[0.4, 0.4, 0.4]}
-            color={palette.gold}
-            rotation={0.08}
-          />
-        </group>
-        <group userData={{ revealAt: 0.68, revealSpan: 0.26 }}>
-          <GiftBox
-            position={[0.82, -0.42, 0.8]}
-            scale={[0.38, 0.38, 0.38]}
-            color={palette.ivory}
-            rotation={-0.14}
-          />
-        </group>
-      </group>
-    </group>
+function makePoints(count: number) {
+  return new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(
+    THREE.DynamicDrawUsage,
   );
 }
 
 function OpeningWorld({
   mode,
   quality,
-  reducedMotion,
-  onBackgroundStart,
-  onInterfaceReveal,
+  onSceneReady,
+  onProgress,
   onComplete,
-}: Omit<OpeningSceneProps, "onSceneReady">) {
-  const { size } = useThree();
-  const isMobile = size.width < 760;
-  const candyRef = useRef<THREE.Group>(null);
-  const candyMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
-  const decorRef = useRef<THREE.Group>(null);
-  const moteRef = useRef<THREE.Points>(null);
-  const moteMaterialRef = useRef<THREE.PointsMaterial>(null);
-  const magicRef = useRef<THREE.Points>(null);
-  const magicMaterialRef = useRef<THREE.PointsMaterial>(null);
-  const ribbonRef = useRef<THREE.Mesh>(null);
-  const ribbonMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
-  const treeRef = useRef<THREE.Group>(null);
-  const giftRef = useRef<THREE.Group>(null);
-  const startTimeRef = useRef<number | null>(null);
-  const sentBackgroundRef = useRef(false);
-  const sentInterfaceRef = useRef(false);
-  const sentCompleteRef = useRef(false);
-  const starShape = useMemo(() => createStarShape(), []);
-  const settings = QUALITY[quality];
-  const motes = useMemo(
-    () => createSeededPositions(settings.motes),
-    [settings.motes],
+}: OpeningSceneProps) {
+  const size = useThree((state) => state.size);
+  const camera = useThree((state) => state.camera);
+  const count = QUALITY[quality].motes;
+  const assets = useMemo(() => createOpeningAssets(count), [count]);
+  const loadingPoints = useMemo(
+    () => makePoints(Math.floor(count / 4)),
+    [count],
   );
-  const expansionCurve = useMemo(
+  const trailPoints = useMemo(() => makePoints(count), [count]);
+  const nowPoint = useMemo(() => new THREE.Vector3(), []);
+  const sample = useMemo(() => new THREE.Vector3(), []);
+  const heroRef = useRef<THREE.Group>(null);
+  const starsRef = useRef<THREE.Group>(null);
+  const loadingGlowRef = useRef<THREE.PointsMaterial>(null);
+  const trailGlowRef = useRef<THREE.PointsMaterial>(null);
+  const ribbonRef = useRef<THREE.MeshBasicMaterial>(null);
+  const startRef = useRef<number | null>(null);
+  const readyRef = useRef(false);
+  const settledRef = useRef(false);
+  const loadingAngleRef = useRef(-0.22);
+  const width = (size.width / Math.max(1, size.height)) * FRAME_HEIGHT;
+  const mobile = size.width <= 760;
+  const artScale = mobile
+    ? Math.min(0.54, width / 5.15)
+    : Math.min(1.07, (width * 0.51) / 4.7);
+  const artX = mobile ? 0 : width * 0.247;
+  const artY = mobile ? 1.5 : -0.22;
+  const candyScale = mobile ? Math.min(1, width / 3.3) : 1.18;
+  const flight = useMemo(
     () =>
       new THREE.CatmullRomCurve3([
         new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(0.46, 0.56, 0.08),
-        new THREE.Vector3(-0.08, 1.08, 0.12),
-        new THREE.Vector3(-0.86, 0.42, 0.2),
-        new THREE.Vector3(-0.64, -0.62, 0.3),
-        new THREE.Vector3(0.16, -0.88, 0.42),
-        new THREE.Vector3(0.98, -0.22, 0.54),
-        new THREE.Vector3(1.1, 0.84, 0.68),
-        new THREE.Vector3(0.12, 1.22, 0.82),
-        new THREE.Vector3(-1.16, 0.36, 0.98),
-        new THREE.Vector3(-0.62, -1.04, 1.15),
-        new THREE.Vector3(0.76, -1.42, 1.3),
-        new THREE.Vector3(2.08, -1.02, 1.45),
-        new THREE.Vector3(3.08, -1.82, 1.65),
+        new THREE.Vector3(-width * 0.105, 0.42, 0.12),
+        new THREE.Vector3(-width * 0.045, 1.16, 0.18),
+        new THREE.Vector3(width * 0.095, 0.89, 0.29),
+        new THREE.Vector3(width * 0.19, -0.59, 0.35),
+        new THREE.Vector3(artX + artScale * 0.84, artY - artScale * 0.7, 0.28),
+        new THREE.Vector3(artX + artScale * 0.89, artY + artScale * 1.16, 0.12),
+        new THREE.Vector3(artX, artY + artScale * 2.47, 0),
       ]),
-    [],
+    [artX, artY, artScale, width],
   );
-  const returnCurve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(3.08, -1.82, 1.65),
-        new THREE.Vector3(4.05, -0.62, 1.42),
-        new THREE.Vector3(3.82, 1.36, 1.02),
-        new THREE.Vector3(3.02, 2.06, 0.72),
-      ]),
-    [],
-  );
-  const magicPositions = useMemo(() => {
-    const count = settings.motes + 60;
-    const positions = new Float32Array(count * 3);
-    for (let index = 0; index < count; index += 1) {
-      const t = index / Math.max(1, count - 1);
-      const angle = t * Math.PI * 7.2;
-      const radius = 0.2 + t * 1.6;
-      positions[index * 3] = Math.cos(angle) * radius;
-      positions[index * 3 + 1] = 2.72 - t * 4.45;
-      positions[index * 3 + 2] = Math.sin(angle) * radius * 0.44 + 0.4;
-    }
-    return positions;
-  }, [settings.motes]);
-  const ribbonCurve = useMemo(() => {
-    const points = Array.from({ length: 72 }, (_, index) => {
-      const t = index / 71;
-      const angle = t * Math.PI * 6.4;
-      const radius = 0.28 + t * 1.5;
-      return new THREE.Vector3(
-        Math.cos(angle) * radius,
-        2.66 - t * 4.18,
-        Math.sin(angle) * radius * 0.46 + 0.48,
-      );
-    });
-    return new THREE.CatmullRomCurve3(points);
-  }, []);
 
-  useEffect(() => {
-    startTimeRef.current = null;
-    sentBackgroundRef.current = mode === "ready";
-    sentInterfaceRef.current = mode === "ready";
-    sentCompleteRef.current = mode === "ready";
-  }, [mode]);
+  useLayoutEffect(() => {
+    // Match framing to the viewport only on resize. Animation never touches the camera.
+    fitCamera(camera, size.height);
+  }, [camera, size.height]);
 
-  const revealParts = useCallback(
-    (group: THREE.Group | null, progress: number) => {
-      if (!group) return;
-      group.visible = progress > 0;
-      group.children.forEach((child) => {
-        const revealAt = Number(child.userData.revealAt ?? 0);
-        const revealSpan = Number(child.userData.revealSpan ?? 0.2);
-        const local = Math.min(
-          1,
-          Math.max(0, (progress - revealAt) / revealSpan),
-        );
-        child.visible = local > 0;
-        const eased = easeOutCubic(local);
-        child.scale.setScalar(Math.max(0.001, eased));
+  useEffect(
+    () => () => {
+      const geometries = new Set<THREE.BufferGeometry>([
+        assets.candy,
+        assets.star,
+        assets.ribbon,
+      ]);
+      assets.model.group.traverse((part) => {
+        if (part instanceof THREE.Mesh) geometries.add(part.geometry);
       });
+      geometries.forEach((geometry) => geometry.dispose());
+      for (const material of [
+        assets.candyMaterial,
+        assets.starMaterial,
+        ...assets.model.materials,
+      ])
+        material.dispose();
+      for (const { material } of assets.model.shadows) material.dispose();
+      assets.model.depthMaterial.dispose();
+      for (const texture of [
+        assets.paper,
+        assets.candyTexture,
+        assets.glow,
+        assets.contact,
+      ])
+        texture.dispose();
     },
-    [],
+    [assets],
   );
 
-  useFrame((state, delta) => {
-    const candy = candyRef.current;
-    const material = candyMaterialRef.current;
-    const decor = decorRef.current;
-    if (!candy || !material || !decor) return;
+  useFrame(({ clock }) => {
+    const hero = heroRef.current;
+    const stars = starsRef.current;
+    const loadingGlow = loadingGlowRef.current;
+    const trailGlow = trailGlowRef.current;
+    const ribbon = ribbonRef.current;
+    if (!hero || !stars || !loadingGlow || !trailGlow || !ribbon) return;
 
-    const clock = state.clock.elapsedTime;
-    if (mode === "playing" && startTimeRef.current === null) {
-      startTimeRef.current = clock;
-    }
+    const time = clock.elapsedTime;
+    if (mode === "playing") startRef.current ??= time;
     const elapsed =
       mode === "ready"
-        ? OPENING_TIMELINE.total + 0.01
-        : mode === "playing"
-          ? clock - (startTimeRef.current ?? clock)
-          : 0;
+        ? OPENING_TIMELINE.total
+        : time - (startRef.current ?? time);
     const frame = getOpeningFrame(elapsed);
+    const dissolve = smooth(frame.dissolve);
+    const reveal = smooth(frame.tableau);
+    const travel = smooth(frame.flight);
+    const skyFade = 1 - fade(frame.background * 1.5);
+    const { model, candyMaterial, starMaterial, sparkSeeds } = assets;
 
-    if (mode === "loading") {
-      candy.visible = true;
-      candy.position.set(0, 0, 0);
-      candy.scale.setScalar(isMobile ? 0.56 : 0.72);
-      candy.rotation.z = Math.sin(clock * ((Math.PI * 2) / 2.5)) * 0.1745;
-      material.opacity = 1;
-      decor.position.copy(candy.position);
-      decor.scale.setScalar(isMobile ? 0.88 : 1);
-      decor.rotation.z = Math.sin(clock * 0.35) * 0.06;
-      if (moteRef.current) {
-        moteRef.current.position.y = Math.sin(clock * 0.8) * 0.08;
+    hero.visible = frame.dissolve < 1;
+    if (hero.visible) {
+      if (mode === "loading")
+        loadingAngleRef.current = -0.22 + Math.sin(time * 2.05) * 0.08;
+      flight.getPoint(travel, nowPoint);
+      const scale =
+        candyScale * THREE.MathUtils.lerp(1, 0.16, smooth(frame.flight));
+      hero.position.copy(nowPoint);
+      hero.scale.setScalar(scale);
+      hero.rotation.set(
+        -0.08,
+        -0.14 + Math.sin(travel * Math.PI) * 0.66,
+        loadingAngleRef.current - travel * Math.PI * 1.8,
+      );
+      setOpacity(candyMaterial, 1 - dissolve);
+    }
+
+    stars.visible = skyFade > 0;
+    if (stars.visible) {
+      setOpacity(starMaterial, skyFade);
+      loadingGlow.opacity = 0.91 * skyFade;
+      for (let i = 0; i < loadingPoints.count; i++) {
+        const seed = sparkSeeds[i];
+        loadingPoints.setXYZ(
+          i,
+          seed.x * width * 0.34 + Math.sin(time + seed.phase * 8) * 0.12,
+          seed.y * 2.65 + Math.cos(time * 0.75 + seed.phase * 11) * 0.14,
+          -0.18,
+        );
       }
-      revealParts(treeRef.current, 0);
-      revealParts(giftRef.current, 0);
-      if (magicMaterialRef.current) magicMaterialRef.current.opacity = 0;
-      return;
+      updatePoints(loadingPoints);
     }
 
-    const xFactor = isMobile ? 0.5 : 1;
-    if (frame.expansion < 1) {
-      const point = expansionCurve.getPoint(easeInOutCubic(frame.expansion));
-      const tangent = expansionCurve.getTangent(frame.expansion);
-      candy.position.set(point.x * xFactor, point.y, point.z);
-      const scale = (isMobile ? 0.56 : 0.72) * (1 + frame.expansion * 2.45);
-      candy.scale.set(
-        scale * (1 + Math.sin(frame.expansion * Math.PI) * 0.12),
-        scale * (1 - Math.sin(frame.expansion * Math.PI) * 0.06),
-        scale,
-      );
-      candy.rotation.z = Math.atan2(tangent.y, tangent.x) - Math.PI / 2;
-    } else if (frame.returnFlight < 1) {
-      const progress = easeInOutCubic(frame.returnFlight);
-      const point = returnCurve.getPoint(progress);
-      const tangent = returnCurve.getTangent(progress);
-      candy.position.set(point.x * xFactor, point.y, point.z);
-      const scale = THREE.MathUtils.lerp(
-        (isMobile ? 0.56 : 0.72) * 3.45,
-        isMobile ? 0.34 : 0.42,
-        progress,
-      );
-      candy.scale.setScalar(scale);
-      candy.rotation.z = Math.atan2(tangent.y, tangent.x) - Math.PI / 2;
-    } else {
-      candy.position.set(3.02 * xFactor, 2.06, 0.72);
-      candy.scale.setScalar(isMobile ? 0.34 : 0.42);
-      candy.rotation.z += delta * 0.3;
-    }
+    setTableauOpacity(model, reveal);
 
-    candy.visible = frame.dissolve < 1;
-    material.opacity = 1 - frame.dissolve;
-    decor.position.copy(candy.position);
-    decor.scale.copy(candy.scale).multiplyScalar(1.55);
-    decor.rotation.z += delta * (frame.expansion > 0 ? 0.75 : 0.12);
-    if (moteMaterialRef.current) {
-      moteMaterialRef.current.opacity = THREE.MathUtils.lerp(
-        0.58,
-        0.12,
-        frame.dissolve,
+    if (mode !== "loading") {
+      const halo = fade(frame.flight * 3);
+      const garland = smooth(frame.garland);
+      const thread = assets.ribbon.index;
+      ribbon.opacity = garland * 0.88;
+      assets.ribbon.setDrawRange(
+        0,
+        thread ? Math.floor((thread.count / 24) * garland) * 24 : 0,
       );
-    }
-    if (magicRef.current) {
-      const treeX = isMobile ? 0 : 2.35;
-      magicRef.current.position.set(treeX, isMobile ? 0.92 : -0.48, 0);
-      magicRef.current.rotation.y += reducedMotion ? 0 : delta * 0.22;
-      if (ribbonRef.current) {
-        ribbonRef.current.position.copy(magicRef.current.position);
-        ribbonRef.current.rotation.y = magicRef.current.rotation.y;
-        ribbonRef.current.scale.setScalar(isMobile ? 0.56 : 1);
+      trailGlow.opacity = Math.max(halo * (1 - dissolve), garland) * 0.92;
+      for (let i = 0; i < count; i++) {
+        const seed = sparkSeeds[i];
+        const t = (seed.phase + time * (0.035 + seed.depth * 0.028)) % 1;
+        if (frame.dissolve < seed.phase) {
+          flight.getPoint(Math.max(0, travel - t * 0.18), sample);
+          const spread = seed.spread * (0.35 + t + dissolve);
+          sample.set(
+            sample.x + seed.x * spread,
+            sample.y + seed.y * spread * 0.83,
+            sample.z + 0.24,
+          );
+        } else {
+          garlandPoint(t * garland, sample);
+          sample.set(
+            artX + (sample.x + seed.x * seed.spread) * artScale,
+            artY + (sample.y + seed.y * seed.spread) * artScale,
+            (sample.z + 0.22 + seed.depth * seed.spread) * artScale,
+          );
+          if (dissolve < 1 && garland < 1) {
+            // The same sparks leave the candy and land on the opening turn of the garland.
+            sample.lerp(
+              hero.position,
+              1 - fade((frame.dissolve - seed.phase) * 5),
+            );
+          }
+        }
+        trailPoints.setXYZ(i, sample.x, sample.y, sample.z);
       }
-    }
-    if (magicMaterialRef.current) {
-      const arrival = Math.max(frame.dissolve, frame.tree);
-      magicMaterialRef.current.opacity =
-        mode === "ready" ? 0.5 : Math.min(0.88, arrival * 1.25);
-    }
-    if (ribbonMaterialRef.current) {
-      ribbonMaterialRef.current.opacity =
-        mode === "ready" ? 0.76 : Math.min(0.76, frame.tree * 0.9);
+      updatePoints(trailPoints);
     }
 
-    revealParts(treeRef.current, mode === "ready" ? 1 : frame.tree);
-    revealParts(giftRef.current, mode === "ready" ? 1 : frame.gifts);
-
-    if (
-      !sentBackgroundRef.current &&
-      elapsed >= OPENING_TIMELINE.backgroundStart
-    ) {
-      sentBackgroundRef.current = true;
-      onBackgroundStart();
+    if (!readyRef.current) {
+      readyRef.current = true;
+      onSceneReady(assets.grain);
     }
-    if (
-      !sentInterfaceRef.current &&
-      elapsed >= OPENING_TIMELINE.interface.start
-    ) {
-      sentInterfaceRef.current = true;
-      onInterfaceReveal();
-    }
-    if (!sentCompleteRef.current && frame.complete) {
-      sentCompleteRef.current = true;
-      onComplete();
+    if (mode === "playing") {
+      onProgress(smooth(frame.background), smooth(frame.interface));
+      if (frame.complete && !settledRef.current) {
+        settledRef.current = true;
+        onComplete();
+      }
     }
   });
 
   return (
     <>
-      <ambientLight intensity={1.7} />
-      <directionalLight position={[4, 6, 6]} intensity={2.25} castShadow />
-      <pointLight position={[-2, 2, 4]} intensity={10} color={palette.gold} />
-      <CandyCane
-        groupRef={candyRef}
-        materialRef={candyMaterialRef}
-        visible={mode !== "ready"}
+      <hemisphereLight args={["#fff1ce", "#a68763", 1.4]} />
+      <ambientLight color="#f8e0bd" intensity={0.41} />
+      <directionalLight position={[-4, 6, 4]} intensity={2.8} color="#ffe5b0" />
+      <directionalLight
+        position={[-4, 3, -3]}
+        intensity={2.6}
+        color="#ffd17e"
       />
-      <group ref={decorRef} visible={mode !== "ready"}>
-        {[
-          [-1.18, 0.82, 0.12, 1],
-          [1.32, 0.58, -0.18, 0.72],
-          [-1.42, -0.72, 0.22, 0.66],
-          [1.06, -0.9, 0.05, 0.86],
-          [0.2, 1.42, -0.2, 0.54],
-        ].map(([x, y, z, scale], index) => (
+      <directionalLight
+        position={[4, 0.4, 2]}
+        intensity={0.31}
+        color="#c6d7c2"
+      />
+      <group ref={heroRef} visible={mode !== "ready"}>
+        <mesh geometry={assets.candy} material={assets.candyMaterial} />
+      </group>
+      <group ref={starsRef} visible={mode !== "ready"}>
+        {STARS.map(([x, y, radius], index) => (
           <mesh
             key={index}
-            position={[x, y, z]}
-            scale={scale}
-            rotation={[0, 0, index * 0.34]}
-          >
-            <shapeGeometry args={[starShape]} />
-            <meshStandardMaterial
-              color={palette.gold}
-              roughness={0.58}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
+            geometry={assets.star}
+            material={assets.starMaterial}
+            position={[x * width * (mobile ? 0.72 : 0.51), y * 3.3, -0.12]}
+            scale={radius * 1.12}
+            rotation={[0, 0.12 + 0.07 * index, -0.24 + 0.06 * index]}
+          />
         ))}
-        <points ref={moteRef}>
+        <points frustumCulled={false}>
           <bufferGeometry>
-            <bufferAttribute attach="attributes-position" args={[motes, 3]} />
+            <primitive object={loadingPoints} attach="attributes-position" />
           </bufferGeometry>
           <pointsMaterial
-            ref={moteMaterialRef}
-            color={palette.gold}
-            size={0.052}
+            ref={loadingGlowRef}
+            map={assets.glow}
+            size={19}
+            sizeAttenuation={false}
             transparent
-            opacity={0.58}
             depthWrite={false}
+            toneMapped={false}
           />
         </points>
       </group>
-
-      <points ref={magicRef}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[magicPositions, 3]}
+      <group position={[artX, artY, 0]} scale={artScale}>
+        <group rotation={[0.15, 0, 0]}>
+          <primitive object={assets.model.depth} />
+          <primitive object={assets.model.group} />
+        </group>
+        <mesh geometry={assets.ribbon}>
+          <meshBasicMaterial
+            ref={ribbonRef}
+            color="#fff1ae"
+            transparent
+            opacity={0}
+            depthWrite={false}
+            toneMapped={false}
           />
+        </mesh>
+      </group>
+      <points frustumCulled={false}>
+        <bufferGeometry>
+          <primitive object={trailPoints} attach="attributes-position" />
         </bufferGeometry>
         <pointsMaterial
-          ref={magicMaterialRef}
-          color="#efc46f"
-          size={0.058}
+          ref={trailGlowRef}
+          map={assets.glow}
+          size={14}
+          sizeAttenuation={false}
           transparent
-          opacity={mode === "ready" ? 0.5 : 0}
+          opacity={0}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          toneMapped={false}
         />
       </points>
-
-      <mesh ref={ribbonRef}>
-        <tubeGeometry args={[ribbonCurve, 112, 0.028, 6, false]} />
-        <meshBasicMaterial
-          ref={ribbonMaterialRef}
-          color={palette.gold}
-          transparent
-          opacity={mode === "ready" ? 0.76 : 0}
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </mesh>
-
-      <TreeAndGifts
-        treeRef={treeRef}
-        giftRef={giftRef}
-        isMobile={isMobile}
-        ready={mode === "ready"}
-      />
-      <mesh
-        position={[isMobile ? 0 : 2.35, isMobile ? -0.68 : -2.05, -0.48]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        receiveShadow
-      >
-        <circleGeometry args={[isMobile ? 2.1 : 2.5, 42]} />
-        <shadowMaterial transparent opacity={mode === "loading" ? 0 : 0.18} />
-      </mesh>
     </>
   );
 }
 
+const OPENING_CAMERA = {
+  position: [0, 0, 12] as [number, number, number],
+  near: 0.1,
+  far: 32,
+};
+
 export function OpeningThreeScene(props: OpeningSceneProps) {
-  const settings = QUALITY[props.quality];
   return (
     <div className="opening-three-scene" aria-hidden="true">
       <Canvas
-        dpr={settings.dpr}
-        camera={{ position: [0, 0.15, 8.2], fov: 46 }}
-        gl={{
-          antialias: props.quality !== "low",
-          alpha: true,
-          powerPreference: "high-performance",
-        }}
-        shadows={props.quality === "high" ? "percentage" : false}
+        orthographic
+        camera={OPENING_CAMERA}
+        dpr={QUALITY[props.quality].dpr}
+        gl={{ antialias: true, alpha: true }}
         frameloop={props.reducedMotion ? "demand" : "always"}
-        onCreated={() => props.onSceneReady()}
       >
         <OpeningWorld {...props} />
       </Canvas>

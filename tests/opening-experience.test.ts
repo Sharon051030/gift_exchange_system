@@ -13,20 +13,22 @@ describe("opening experience timeline", () => {
     expect(segmentProgress(5, segment)).toBe(1);
   });
 
-  it("starts the background wipe after the second horizontal crossing", () => {
-    expect(
-      getOpeningFrame(OPENING_TIMELINE.backgroundStart - 0.01).background,
-    ).toBe(0);
-    expect(
-      getOpeningFrame(OPENING_TIMELINE.backgroundStart + 0.2).background,
-    ).toBeGreaterThan(0);
-    expect(getOpeningFrame(OPENING_TIMELINE.expansion.end).background).toBe(1);
+  it("keeps the downward wash in progress through the flight and dissolve", () => {
+    const { background, flight } = OPENING_TIMELINE;
+    expect(getOpeningFrame(background.start - 0.01).background).toBe(0);
+    expect(getOpeningFrame(flight.end).background).toBeGreaterThan(0);
+    expect(getOpeningFrame(flight.end).background).toBeLessThan(1);
+    expect(getOpeningFrame(background.end).background).toBe(1);
   });
 
-  it("overlaps the tree, gifts, and interface without completing early", () => {
-    const overlap = getOpeningFrame(6.15);
-    expect(overlap.tree).toBeGreaterThan(0);
-    expect(overlap.gifts).toBeGreaterThan(0);
+  it("hands off candy to light before revealing the stationary tableau and copy", () => {
+    const handoff = getOpeningFrame(OPENING_TIMELINE.flight.end);
+    expect(handoff.dissolve).toBeGreaterThan(0);
+    expect(handoff.garland).toBeGreaterThan(0);
+    expect(handoff.tableau).toBe(0);
+    const overlap = getOpeningFrame(OPENING_TIMELINE.interface.start + 0.2);
+    expect(overlap.tableau).toBeGreaterThan(0);
+    expect(overlap.tableau).toBeLessThan(1);
     expect(overlap.interface).toBeGreaterThan(0);
     expect(overlap.complete).toBe(false);
     expect(getOpeningFrame(OPENING_TIMELINE.total).complete).toBe(true);

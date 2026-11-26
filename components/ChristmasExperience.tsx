@@ -11,6 +11,7 @@ import {
   interactionReducer,
   tapCountFor,
 } from "@/lib/experience-machine";
+import { OPENING_TIMELINE } from "@/lib/opening-experience";
 import {
   CloseIcon,
   ExpandIcon,
@@ -657,16 +658,22 @@ function Cover({
   const [openingMode, setOpeningMode] = useState<
     "loading" | "playing" | "ready"
   >("loading");
-  const [backgroundVisible, setBackgroundVisible] = useState(false);
-  const [interfaceVisible, setInterfaceVisible] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
+  const pageRef = useRef<HTMLElement>(null);
+  const enterButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAfterSkipRef = useRef(false);
   const mountedAtRef = useRef(0);
   const sceneStartedRef = useRef(false);
   const openingTimerRef = useRef<number | null>(null);
   const bypassOpening = visualReady && (reducedMotion || !webglAvailable);
   const currentOpeningMode = bypassOpening ? "ready" : openingMode;
-  const showBackground = bypassOpening || backgroundVisible;
-  const showInterface = bypassOpening || interfaceVisible;
+  const showInterface = currentOpeningMode === "ready";
+
+  useEffect(() => {
+    if (!showInterface || !focusAfterSkipRef.current) return;
+    focusAfterSkipRef.current = false;
+    enterButtonRef.current?.focus({ preventScroll: true });
+  }, [showInterface]);
 
   useEffect(() => {
     mountedAtRef.current = performance.now();
@@ -681,16 +688,36 @@ function Cover({
     [],
   );
 
-  const handleSceneReady = useCallback(() => {
-    setSceneReady(true);
-    if (sceneStartedRef.current || reducedMotion) return;
-    sceneStartedRef.current = true;
-    const elapsed = performance.now() - mountedAtRef.current;
-    openingTimerRef.current = window.setTimeout(
-      () => setOpeningMode("playing"),
-      Math.max(0, 900 - elapsed),
-    );
-  }, [reducedMotion]);
+  const handleSceneReady = useCallback(
+    (grain: string) => {
+      pageRef.current?.style.setProperty("--opening-paper", `url("${grain}")`);
+      pageRef.current?.style.setProperty(
+        "--opening-poster-visibility",
+        "hidden",
+      );
+      setSceneReady(true);
+      if (sceneStartedRef.current || reducedMotion) return;
+      sceneStartedRef.current = true;
+      const elapsed = performance.now() - mountedAtRef.current;
+      openingTimerRef.current = window.setTimeout(
+        () => setOpeningMode("playing"),
+        Math.max(0, OPENING_TIMELINE.minimumLoadingSeconds * 1000 - elapsed),
+      );
+    },
+    [reducedMotion],
+  );
+
+  const updateOpeningProgress = useCallback(
+    (background: number, copy: number) => {
+      const style = pageRef.current?.style;
+      if (!style) return;
+      // A wide, feathered band travels downward on the same clock as the candy.
+      style.setProperty("--wash-top", `${background * 134 - 34}%`);
+      style.setProperty("--wash-bottom", `${background * 134}%`);
+      style.setProperty("--opening-copy-opacity", `${copy}`);
+    },
+    [],
+  );
 
   const finishOpening = useCallback(() => {
     sceneStartedRef.current = true;
@@ -698,26 +725,33 @@ function Cover({
       window.clearTimeout(openingTimerRef.current);
       openingTimerRef.current = null;
     }
-    setBackgroundVisible(true);
-    setInterfaceVisible(true);
     setOpeningMode("ready");
   }, []);
 
   return (
     <main
-      className={`opening-page is-${currentOpeningMode} ${
-        showBackground ? "has-background" : ""
-      } ${showInterface ? "has-interface" : ""} ${leaving ? "is-leaving" : ""}`}
+      ref={pageRef}
+      className={`opening-page is-${currentOpeningMode} ${leaving ? "is-leaving" : ""}`}
     >
       <div className="opening-background" aria-hidden="true" />
       <div className="opening-grain" aria-hidden="true" />
 
-      <div className="opening-skip">
-        {currentOpeningMode !== "ready" ? (
-          <button type="button" onClick={finishOpening}>
+      <div className="opening-utility">
+        {showInterface ? (
+          <Link className="admin-entry" href="/admin">
+            主持控制台
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              focusAfterSkipRef.current = true;
+              finishOpening();
+            }}
+          >
             略過動畫
           </button>
-        ) : null}
+        )}
       </div>
 
       <section
@@ -733,6 +767,7 @@ function Cover({
         <p>拆開禮物之前，先拆開今天的驚喜。</p>
         <div className="opening-actions">
           <button
+            ref={enterButtonRef}
             className="primary-cta"
             type="button"
             disabled={leaving || currentOpeningMode !== "ready"}
@@ -741,14 +776,9 @@ function Cover({
             開啟聖誕驚喜
           </button>
         </div>
-        <div className="opening-utility">
-          <Link className="admin-entry" href="/admin">
-            主持控制台
-          </Link>
-        </div>
       </section>
 
-      {visualReady && !webglAvailable ? (
+      {showInterface && (!sceneReady || !webglAvailable) ? (
         <Image
           className="opening-fallback-art"
           src="/assets/opening-tree-fallback.png"
@@ -758,29 +788,27 @@ function Cover({
           priority
           sizes="(max-width: 760px) 92vw, 58vw"
         />
-      ) : visualReady ? (
-        <>
-          {!sceneReady && currentOpeningMode === "loading" ? (
-            <Image
-              className="opening-preload-art"
-              src="/assets/opening-candy-preload.png"
-              alt=""
-              width={1536}
-              height={1536}
-              priority
-              aria-hidden="true"
-            />
-          ) : null}
-          <OpeningThreeScene
-            mode={currentOpeningMode}
-            quality={quality}
-            reducedMotion={reducedMotion}
-            onSceneReady={handleSceneReady}
-            onBackgroundStart={() => setBackgroundVisible(true)}
-            onInterfaceReveal={() => setInterfaceVisible(true)}
-            onComplete={finishOpening}
-          />
-        </>
+      ) : null}
+      {!sceneReady && currentOpeningMode === "loading" ? (
+        <Image
+          className="opening-preload-art"
+          src="/assets/opening-candy-preload.png"
+          alt=""
+          width={1536}
+          height={1536}
+          priority
+          aria-hidden="true"
+        />
+      ) : null}
+      {visualReady && webglAvailable ? (
+        <OpeningThreeScene
+          mode={currentOpeningMode}
+          quality={quality}
+          reducedMotion={reducedMotion}
+          onSceneReady={handleSceneReady}
+          onProgress={updateOpeningProgress}
+          onComplete={finishOpening}
+        />
       ) : null}
 
       <p className="sr-only" role="status" aria-live="polite">
