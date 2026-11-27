@@ -95,23 +95,6 @@ export function candyMap(grain: HTMLCanvasElement, red: string) {
   return texture;
 }
 
-export function createGlowTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext("2d")!;
-  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gradient.addColorStop(0, "#fffdee");
-  gradient.addColorStop(0.14, "#fff9d9");
-  gradient.addColorStop(0.26, "#ffdb86c0");
-  gradient.addColorStop(0.47, "#fa9a271f");
-  gradient.addColorStop(1, "#fa9a2700");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 64, 64);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 export function createContactTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 96;

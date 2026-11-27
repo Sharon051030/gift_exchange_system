@@ -13,11 +13,13 @@ describe("opening experience timeline", () => {
     expect(segmentProgress(5, segment)).toBe(1);
   });
 
-  it("keeps the downward wash in progress through the flight and dissolve", () => {
-    const { background, flight } = OPENING_TIMELINE;
+  it("finishes the downward wash in under two seconds before the candy dissolves", () => {
+    const { background, dissolve } = OPENING_TIMELINE;
     expect(getOpeningFrame(background.start - 0.01).background).toBe(0);
-    expect(getOpeningFrame(flight.end).background).toBeGreaterThan(0);
-    expect(getOpeningFrame(flight.end).background).toBeLessThan(1);
+    expect(background.end - background.start).toBeLessThan(2);
+    const midWash = getOpeningFrame((background.start + background.end) / 2);
+    expect(midWash.background).toBeCloseTo(0.5);
+    expect(getOpeningFrame(dissolve.start).background).toBe(1);
     expect(getOpeningFrame(background.end).background).toBe(1);
   });
 

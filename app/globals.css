@@ -2226,8 +2226,8 @@ progress::-moz-progress-bar {
 .opening-background {
   z-index: 0;
   background:
-    radial-gradient(ellipse at 24% 14%, #fff3cf, transparent 76%),
-    linear-gradient(132deg, #fff0c440 22%, transparent 54%, #f5ad4a36),
+    radial-gradient(ellipse at 21% 12%, #fff5d5, transparent 74%),
+    linear-gradient(132deg, #fff0c440 22%, transparent 54%, #d58b3138),
     var(--homepage-egg);
   mask-image: linear-gradient(
     to bottom,

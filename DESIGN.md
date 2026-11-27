@@ -112,6 +112,8 @@ Three.js is reserved for four high-value layers: the continuous candy-cane openi
 
 The cover layer owns one sequence: the loading candy and motes keep their launch positions, then draw together around a widening vortex during the feathered top-to-bottom colour wash. The tree unfolds from the star down to its trunk, then the presents spring from the root and settle. The fixed camera and upper-left warm key light keep the composition grounded. Timing lives in `lib/opening-experience.ts`. Reduced motion and unavailable WebGL resolve directly to the completed homepage composition.
 
+The gold orbit is an invisible route. A diffuse halo follows it while motes of different sizes twinkle and emit their own soft halos. When reduced motion is enabled, the motes and their glow stay still.
+
 Admin status tags use text plus tone, never color alone. The participant and gift datasets are bounded to 50 rows per pool and remain semantic tables. The dashboard search is local and intentionally transient so participant names do not enter shareable URLs.
 
 ## Do's and Don'ts

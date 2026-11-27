@@ -2,7 +2,7 @@ export const OPENING_TIMELINE = {
   minimumLoadingSeconds: 0.9,
   flight: { start: 0, end: 3.65 },
   gather: { start: 0, end: 0.85 },
-  background: { start: 0.95, end: 4.7 },
+  background: { start: 0.72, end: 2.6 },
   dissolve: { start: 3.35, end: 4.15 },
   garland: { start: 3.58, end: 6.3 },
   tree: { start: 3.86, end: 6.16 },

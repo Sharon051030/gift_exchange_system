@@ -9,9 +9,13 @@ import {
   segmentProgress,
 } from "@/lib/opening-experience";
 import {
+  createOrbitHalo,
+  createSparkMaterial,
+  updateOpeningLights,
+} from "./opening-light-effects";
+import {
   candyMap,
   createContactTexture,
-  createGlowTexture,
   paperCanvas,
   readOpeningPalette,
   seededRandom,
@@ -37,9 +41,9 @@ type OpeningSceneProps = {
 
 const FRAME_HEIGHT = 7;
 const QUALITY = {
-  high: { dpr: 1.65, motes: 136 },
-  standard: { dpr: 1.35, motes: 94 },
-  low: { dpr: 1, motes: 54 },
+  high: { dpr: 1.65, motes: 220 },
+  standard: { dpr: 1.35, motes: 170 },
+  low: { dpr: 1, motes: 76 },
 } as const;
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -156,7 +160,6 @@ function createOpeningAssets(count: number) {
   paper.colorSpace = THREE.SRGBColorSpace;
   paper.anisotropy = 4;
   const candyTexture = candyMap(grain, "#b63d24");
-  const glow = createGlowTexture();
   const contact = createContactTexture();
   const model = createChristmasModel(palette, paper, contact);
   const candyMaterial = new THREE.MeshStandardMaterial({
@@ -189,17 +192,8 @@ function createOpeningAssets(count: number) {
   });
   const candy = candyGeometry();
   const star = starGeometry(1);
-  const ribbon = new THREE.TubeGeometry(
-    new THREE.CatmullRomCurve3(
-      Array.from({ length: 112 }, (_, i) =>
-        garlandPoint(i / 111, new THREE.Vector3()),
-      ),
-    ),
-    146,
-    0.011,
-    4,
-    false,
-  );
+  const halo = createOrbitHalo(garlandPoint);
+  const sparkMaterial = createSparkMaterial();
   const random = seededRandom(491);
   const sparkSeeds = Array.from({ length: count }, (_, index) => ({
     phase: random(),
@@ -208,19 +202,27 @@ function createOpeningAssets(count: number) {
     depth: random(),
     spread: index % 3 ? 0.11 + random() * 0.22 : 0.25 + random() * 0.61,
   }));
+  const sparkStyle = new THREE.Float32BufferAttribute(
+    sparkSeeds.flatMap(({ phase, depth, x }, index) => [
+      index % 11 === 0 ? 0.76 + depth * 0.24 : depth ** 2 * 0.63,
+      phase * Math.PI * 2,
+      1.0 + (1 + x) * 1.85,
+    ]),
+    3,
+  );
   return {
-    palette,
     grain: grain.toDataURL("image/png"),
     paper,
     candyTexture,
-    glow,
     contact,
     model,
     candy,
     candyMaterial,
     star,
     starMaterial,
-    ribbon,
+    halo,
+    sparkMaterial,
+    sparkStyle,
     sparkSeeds,
   };
 }
@@ -244,6 +246,7 @@ function makePoints(count: number) {
 function OpeningWorld({
   mode,
   quality,
+  reducedMotion,
   onSceneReady,
   onProgress,
   onComplete,
@@ -259,8 +262,6 @@ function OpeningWorld({
   const destination = useMemo(() => new THREE.Vector3(), []);
   const heroRef = useRef<THREE.Group>(null);
   const starsRef = useRef<THREE.Group>(null);
-  const glowRef = useRef<THREE.PointsMaterial>(null);
-  const ribbonRef = useRef<THREE.MeshBasicMaterial>(null);
   const startRef = useRef<number | null>(null);
   const readyRef = useRef(false);
   const settledRef = useRef(false);
@@ -288,11 +289,13 @@ function OpeningWorld({
       const geometries = new Set<THREE.BufferGeometry>([
         assets.candy,
         assets.star,
-        assets.ribbon,
+        assets.halo.geometry,
       ]);
       const materials = new Set<THREE.Material>([
         assets.candyMaterial,
         assets.starMaterial,
+        assets.halo.material,
+        assets.sparkMaterial,
       ]);
       assets.model.group.traverse((part) => {
         if (part instanceof THREE.Mesh) {
@@ -303,25 +306,18 @@ function OpeningWorld({
       });
       geometries.forEach((geometry) => geometry.dispose());
       materials.forEach((material) => material.dispose());
-      for (const texture of [
-        assets.paper,
-        assets.candyTexture,
-        assets.glow,
-        assets.contact,
-      ])
+      for (const texture of [assets.paper, assets.candyTexture, assets.contact])
         texture.dispose();
     },
     [assets],
   );
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, gl }) => {
     const hero = heroRef.current;
     const stars = starsRef.current;
-    const glow = glowRef.current;
-    const ribbon = ribbonRef.current;
-    if (!hero || !stars || !glow || !ribbon) return;
+    if (!hero || !stars) return;
 
-    const time = clock.elapsedTime;
+    const time = reducedMotion ? 0 : clock.elapsedTime;
     if (mode === "playing" && startRef.current === null) {
       startRef.current = time;
       // Keep the exact positions from the last loading frame as the launch pose.
@@ -373,16 +369,17 @@ function OpeningWorld({
     }
 
     assembleModel(model, frame.tree, frame.gifts);
+    const garland = smooth(frame.garland);
+    updateOpeningLights(
+      assets.sparkMaterial,
+      assets.halo.material,
+      time,
+      gl.getPixelRatio(),
+      Math.sin(Math.PI * frame.flight),
+      garland,
+    );
 
     if (mode !== "loading") {
-      const garland = smooth(frame.garland);
-      const thread = assets.ribbon.index;
-      ribbon.opacity = garland * 0.88;
-      assets.ribbon.setDrawRange(
-        0,
-        thread ? Math.floor((thread.count / 24) * garland) * 24 : 0,
-      );
-      glow.size = 13 + Math.sin(Math.PI * frame.flight) * 4;
       for (let i = 0; i < count; i++) {
         const seed = sparkSeeds[i];
         const drift = Math.sin(time * 1.6 + seed.depth * 10) * 0.034;
@@ -399,12 +396,12 @@ function OpeningWorld({
         sample.lerp(destination.fromArray(initialParticles, i * 3), 1 - gather);
 
         const settle = fade((frame.garland - seed.phase * 0.35) / 0.65);
-        const ribbonPosition = THREE.MathUtils.clamp(
+        const orbitPosition = THREE.MathUtils.clamp(
           seed.phase * garland + drift,
           0,
           1,
         );
-        garlandPoint(ribbonPosition, destination);
+        garlandPoint(orbitPosition, destination);
         destination.set(
           artX + (destination.x + seed.x * seed.spread * 0.75) * artScale,
           artY + (destination.y + seed.y * seed.spread * 0.75) * artScale,
@@ -431,12 +428,12 @@ function OpeningWorld({
 
   return (
     <>
-      <hemisphereLight args={["#fff2d4", "#b68e65", 1.2]} />
-      <ambientLight color="#ffe6b8" intensity={0.3} />
+      <hemisphereLight args={["#fff3d3", "#896344", 1.05]} />
+      <ambientLight color="#ffe6b8" intensity={0.22} />
       <directionalLight
         position={[-5.8, 7, 4.5]}
-        intensity={3.35}
-        color="#ffe6ae"
+        intensity={4.15}
+        color="#ffedc0"
         castShadow={quality !== "low"}
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-8}
@@ -448,7 +445,7 @@ function OpeningWorld({
         shadow-bias={-0.0003}
         shadow-radius={3}
       />
-      <directionalLight position={[3, 2, 4]} intensity={0.64} color="#f2dfb1" />
+      <directionalLight position={[3, 2, 4]} intensity={0.46} color="#f2dfb1" />
       <group ref={heroRef} visible={mode !== "ready"}>
         <mesh geometry={assets.candy} material={assets.candyMaterial} />
       </group>
@@ -468,31 +465,21 @@ function OpeningWorld({
         <group rotation={[0.15, 0, 0]}>
           <primitive object={assets.model.group} />
         </group>
-        <mesh geometry={assets.ribbon}>
-          <meshBasicMaterial
-            ref={ribbonRef}
-            color="#fff1ae"
-            transparent
-            opacity={0}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </mesh>
+        <mesh
+          geometry={assets.halo.geometry}
+          material={assets.halo.material}
+          renderOrder={1}
+        />
       </group>
-      <points frustumCulled={false}>
+      <points
+        material={assets.sparkMaterial}
+        frustumCulled={false}
+        renderOrder={2}
+      >
         <bufferGeometry>
           <primitive object={particles} attach="attributes-position" />
+          <primitive object={assets.sparkStyle} attach="attributes-spark" />
         </bufferGeometry>
-        <pointsMaterial
-          ref={glowRef}
-          map={assets.glow}
-          size={13}
-          sizeAttenuation={false}
-          transparent
-          opacity={0.94}
-          depthWrite={false}
-          toneMapped={false}
-        />
       </points>
     </>
   );
